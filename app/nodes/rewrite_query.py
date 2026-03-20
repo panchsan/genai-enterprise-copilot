@@ -1,6 +1,7 @@
 from app.config import settings
 from app.services.llm import get_azure_openai_client
 from app.services.logging_utils import get_logger, log_timing
+from app.services.llm import get_azure_openai_client, safe_chat_completion
 from app.state import AgentState
 
 client = get_azure_openai_client()
@@ -74,14 +75,19 @@ def rewrite_query(state: AgentState):
         }
     )
 
-    with log_timing(logger, "rewrite_query_llm", request_id):
-        response = client.chat.completions.create(
-            model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
-            messages=messages,
-            temperature=0,
-        )
+    try:
+        with log_timing(logger, "rewrite_query_llm", request_id):
+            response = safe_chat_completion(
+                client,
+                model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
+                messages=messages,
+                temperature=0,
+            )
 
-    rewritten_query = (response.choices[0].message.content or original_query).strip()
+        rewritten_query = (response.choices[0].message.content or original_query).strip()
+    except Exception as exc:
+        logger.error(f"[request_id={request_id}] Rewrite query failed: {exc}")
+        rewritten_query = original_query
 
     if not rewritten_query:
         rewritten_query = original_query

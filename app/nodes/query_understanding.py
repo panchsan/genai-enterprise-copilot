@@ -3,6 +3,7 @@ import json
 from app.config import settings
 from app.services.llm import get_azure_openai_client
 from app.services.logging_utils import get_logger, log_timing
+from app.services.llm import get_azure_openai_client, safe_chat_completion
 from app.state import AgentState
 
 client = get_azure_openai_client()
@@ -121,26 +122,34 @@ def analyze_query(state: AgentState):
 
     messages.append({"role": "user", "content": query})
 
-    with log_timing(logger, "query_understanding_llm", request_id):
-        response = client.chat.completions.create(
-            model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
-            messages=messages,
-            temperature=0,
-        )
-
-    raw_output = response.choices[0].message.content or "{}"
-    logger.info(f"[request_id={request_id}] Raw model output={raw_output}")
-
     try:
-        parsed = json.loads(raw_output)
-    except json.JSONDecodeError:
-        logger.warning(f"[request_id={request_id}] Failed to parse model output; using safe defaults")
+        with log_timing(logger, "query_understanding_llm", request_id):
+            response = safe_chat_completion(
+                client,
+                model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
+                messages=messages,
+                temperature=0,
+            )
+
+        raw_output = response.choices[0].message.content or "{}"
+        logger.info(f"[request_id={request_id}] Raw model output={raw_output}")
+
+        try:
+            parsed = json.loads(raw_output)
+        except json.JSONDecodeError:
+            logger.warning(f"[request_id={request_id}] Failed to parse model output; using safe defaults")
+            parsed = {
+                "route": "direct",
+                "retrieval_query": query,
+                "filters": {},
+            }
+    except Exception as exc:
+        logger.error(f"[request_id={request_id}] Query understanding failed: {exc}")
         parsed = {
             "route": "direct",
             "retrieval_query": query,
             "filters": {},
         }
-
     route = parsed.get("route", "direct")
     retrieval_query = parsed.get("retrieval_query", query)
     filters = parsed.get("filters", {}) or {}

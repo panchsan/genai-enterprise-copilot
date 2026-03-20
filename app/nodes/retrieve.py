@@ -42,12 +42,21 @@ def retrieve(state: AgentState, vectordb):
         f"[request_id={request_id}] Retrieve query='{query}' | raw_filters={filters} | chroma_filter={chroma_filter}"
     )
 
-    with log_timing(logger, "vector_retrieval", request_id):
-        results = vectordb.similarity_search_with_score(
-            query=query,
-            k=settings.RETRIEVAL_TOP_K,
-            filter=chroma_filter,
-        )
+    try:
+        with log_timing(logger, "vector_retrieval", request_id):
+            results = vectordb.similarity_search_with_score(
+                query=query,
+                k=settings.RETRIEVAL_TOP_K,
+                filter=chroma_filter,
+            )
+    except Exception as exc:
+        logger.error(f"[request_id={request_id}] Retrieval failed: {exc}")
+        return {
+            "context": "",
+            "retrieved_docs": [],
+            "retrieval_scores": [],
+            "top_score": None,
+        }
 
     logger.info(f"[request_id={request_id}] Retrieved docs count={len(results)}")
 
