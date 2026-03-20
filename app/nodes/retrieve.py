@@ -1,3 +1,4 @@
+from app.config import settings
 from app.state import AgentState
 
 
@@ -37,41 +38,53 @@ def retrieve(state: AgentState, vectordb):
     print("🎯 Raw Filters:", filters)
     print("🧱 Chroma Filter:", chroma_filter)
 
-    docs = vectordb.similarity_search(
+    results = vectordb.similarity_search_with_score(
         query=query,
-        k=3,
-        filter=chroma_filter
+        k=settings.RETRIEVAL_TOP_K,
+        filter=chroma_filter,
     )
 
-    print("📚 Retrieved Docs Count:", len(docs))
+    print("📚 Retrieved Docs Count:", len(results))
 
-    if not docs:
+    if not results:
         print("❌ No documents retrieved!")
         return {
             "context": "",
-            "retrieved_docs": []
+            "retrieved_docs": [],
+            "retrieval_scores": [],
+            "top_score": None,
         }
 
     context_parts = []
     retrieved_docs = []
+    scores = []
 
-    for i, doc in enumerate(docs, start=1):
+    for i, (doc, score) in enumerate(results, start=1):
         metadata = getattr(doc, "metadata", {})
         content = doc.page_content[:300]
+        numeric_score = float(score)
 
         print(f"\n--- Doc {i} ---")
+        print("Score:", numeric_score)
         print("Metadata:", metadata)
         print(content)
 
         context_parts.append(doc.page_content)
         retrieved_docs.append({
             "page_content": doc.page_content,
-            "metadata": metadata
+            "metadata": metadata,
         })
+        scores.append(numeric_score)
 
     context = "\n".join(context_parts)
+    top_score = min(scores) if scores else None
+
+    print("📊 Retrieval Scores:", scores)
+    print("🏅 Top Score:", top_score)
 
     return {
         "context": context,
-        "retrieved_docs": retrieved_docs
+        "retrieved_docs": retrieved_docs,
+        "retrieval_scores": scores,
+        "top_score": top_score,
     }

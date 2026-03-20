@@ -14,5 +14,9 @@ class Settings:
     PERSIST_DIR = "./chroma_db"
     DATA_DIR = "data"
 
+    RETRIEVAL_TOP_K = 3
+    RETRIEVAL_SCORE_THRESHOLD = 1.2
+    RETRIEVAL_OVERLAP_THRESHOLD = 0.3
+
 
 settings = Settings()

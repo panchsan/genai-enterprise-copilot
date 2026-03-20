@@ -1,5 +1,6 @@
 import re
 
+from app.config import settings
 from app.state import AgentState
 
 
@@ -24,9 +25,17 @@ def validate_retrieval(state: AgentState):
         or state.get("query", "")
     )
     context = state.get("context", "")
+    top_score = state.get("top_score")
+    retrieval_scores = state.get("retrieval_scores", [])
 
     print("\n🧪 [VALIDATE] Checking retrieval relevance...")
     print("📝 Validation Query:", query)
+    print("📉 Retrieval Scores:", retrieval_scores)
+    print("🏅 Top Score:", top_score)
+
+    if not context.strip():
+        print("❌ [VALIDATE] Empty context -> ungrounded")
+        return {"retrieval_decision": "ungrounded"}
 
     query_terms = tokenize(query)
     context_terms = tokenize(context)
@@ -38,7 +47,22 @@ def validate_retrieval(state: AgentState):
     print("🔗 Overlap Terms:", overlap)
     print("📊 Overlap Score:", round(overlap_score, 2))
 
-    decision = "grounded" if overlap_score >= 0.3 else "ungrounded"
+    strong_vector_match = (
+        top_score is not None
+        and top_score <= settings.RETRIEVAL_SCORE_THRESHOLD
+    )
+
+    strong_overlap = overlap_score >= settings.RETRIEVAL_OVERLAP_THRESHOLD
+
+    print("✅ Strong Vector Match:", strong_vector_match)
+    print("✅ Strong Overlap:", strong_overlap)
+
+    if strong_vector_match and strong_overlap:
+        decision = "grounded"
+    elif strong_vector_match and overlap_score >= 0.15:
+        decision = "grounded"
+    else:
+        decision = "ungrounded"
 
     print("✅ [VALIDATE] Decision:", decision)
 

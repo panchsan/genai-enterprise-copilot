@@ -21,3 +21,6 @@ class AgentState(TypedDict, total=False):
     active_source: Optional[str]
     last_route: Optional[str]
     last_retrieval_query: Optional[str]
+
+    retrieval_scores: List[float]
+    top_score: Optional[float]

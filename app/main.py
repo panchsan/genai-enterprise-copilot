@@ -106,5 +106,7 @@ def chat(request: ChatRequest):
         "history_length": len(get_chat_history(request.session_id)),
         "retrieval_decision": result.get("retrieval_decision"),
         "retrieved_sources": retrieved_sources,
+        "retrieval_scores": result.get("retrieval_scores", []),
+        "top_score": result.get("top_score"),
         "session_context": updated_context,
     }
