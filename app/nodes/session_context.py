@@ -1,4 +1,7 @@
+from app.services.logging_utils import get_logger
 from app.state import AgentState
+
+logger = get_logger("app.session_context")
 
 
 FOLLOW_UP_HINTS = [
@@ -27,6 +30,7 @@ def merge_filters(current_filters: dict, stored_filters: dict) -> dict:
 
 
 def apply_session_context(state: AgentState):
+    request_id = state.get("request_id", "-")
     query = state["query"].lower().strip()
     current_filters = state.get("filters", {}) or {}
     session_context = state.get("session_context", {}) or {}
@@ -36,10 +40,11 @@ def apply_session_context(state: AgentState):
     last_route = session_context.get("last_route")
     last_retrieval_query = session_context.get("last_retrieval_query")
 
-    print("\n🧠 [SESSION CONTEXT] Stored Filters:", stored_filters)
-    print("🧠 [SESSION CONTEXT] Active Source:", active_source)
-    print("🧠 [SESSION CONTEXT] Last Route:", last_route)
-    print("🧠 [SESSION CONTEXT] Last Retrieval Query:", last_retrieval_query)
+    logger.info(
+        f"[request_id={request_id}] Session context loaded | "
+        f"stored_filters={stored_filters} | active_source={active_source} | "
+        f"last_route={last_route} | last_retrieval_query={last_retrieval_query}"
+    )
 
     should_reuse_context = (
         state.get("route") == "retrieve"
@@ -52,8 +57,9 @@ def apply_session_context(state: AgentState):
 
     if should_reuse_context:
         merged_filters = merge_filters(current_filters, stored_filters)
-        print("♻️ [SESSION CONTEXT] Reusing stored filters for follow-up:", merged_filters)
-
+        logger.info(
+            f"[request_id={request_id}] Reusing stored filters for follow-up | merged_filters={merged_filters}"
+        )
         return {
             "filters": merged_filters,
             "active_source": active_source,
@@ -61,7 +67,7 @@ def apply_session_context(state: AgentState):
             "last_retrieval_query": last_retrieval_query,
         }
 
-    print("ℹ️ [SESSION CONTEXT] No stored context reuse applied")
+    logger.info(f"[request_id={request_id}] No session-context reuse applied")
 
     return {
         "filters": current_filters,

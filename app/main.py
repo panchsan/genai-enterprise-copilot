@@ -1,3 +1,4 @@
+import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -12,9 +13,11 @@ from app.services.db import (
     get_session_context,
     update_session_context,
 )
+from app.services.logging_utils import get_logger, log_timing
 from app.services.vectorstore import get_vectorstore
 
 app = FastAPI()
+logger = get_logger("app.main")
 
 graph = None
 
@@ -29,13 +32,13 @@ class ChatRequest(BaseModel):
 def startup():
     global graph
 
-    print("\n🚀 App starting...")
+    logger.info("🚀 App starting...")
 
     init_db()
     vectordb = get_vectorstore()
     graph = build_graph(vectordb)
 
-    print("✅ App startup complete. Graph is ready.")
+    logger.info("✅ App startup complete. Graph is ready.")
 
 
 @app.get("/")
@@ -50,24 +53,29 @@ def chat(request: ChatRequest):
     if graph is None:
         raise HTTPException(status_code=500, detail="Graph is not initialized")
 
-    print("\n📩 Incoming Query:", request.query)
-    print("🧵 Session ID:", request.session_id)
-    print("🎯 Request Filters:", request.filters or {})
+    request_id = str(uuid.uuid4())[:8]
+
+    logger.info(
+        f"[request_id={request_id}] Incoming query='{request.query}' | "
+        f"session_id={request.session_id} | request_filters={request.filters or {}}"
+    )
 
     create_session(request.session_id)
 
     chat_history = get_chat_history(request.session_id)
     session_context = get_session_context(request.session_id)
 
-    print("🗂️ Loaded Session Context:", session_context)
+    logger.info(f"[request_id={request_id}] Loaded session context={session_context}")
 
-    result = graph.invoke({
-        "query": request.query,
-        "session_id": request.session_id,
-        "chat_history": chat_history,
-        "filters": request.filters or {},
-        "session_context": session_context,
-    })
+    with log_timing(logger, "graph_invoke", request_id):
+        result = graph.invoke({
+            "request_id": request_id,
+            "query": request.query,
+            "session_id": request.session_id,
+            "chat_history": chat_history,
+            "filters": request.filters or {},
+            "session_context": session_context,
+        })
 
     save_message(request.session_id, "user", request.query)
     save_message(request.session_id, "assistant", result.get("answer", ""))
@@ -93,7 +101,14 @@ def chat(request: ChatRequest):
 
     updated_context = get_session_context(request.session_id)
 
+    logger.info(
+        f"[request_id={request_id}] Completed | route={result.get('route')} | "
+        f"retrieval_decision={result.get('retrieval_decision')} | "
+        f"top_score={result.get('top_score')} | retrieved_sources={retrieved_sources}"
+    )
+
     return {
+        "request_id": request_id,
         "route": result.get("route"),
         "retrieval_query": result.get("retrieval_query"),
         "rewritten_query": result.get("rewritten_query"),

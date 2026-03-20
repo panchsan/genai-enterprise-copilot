@@ -1,5 +1,8 @@
 from app.config import settings
+from app.services.logging_utils import get_logger, log_timing
 from app.state import AgentState
+
+logger = get_logger("app.retrieve")
 
 
 def build_chroma_filter(filters: dict | None):
@@ -25,6 +28,7 @@ def build_chroma_filter(filters: dict | None):
 
 
 def retrieve(state: AgentState, vectordb):
+    request_id = state.get("request_id", "-")
     query = (
         state.get("rewritten_query")
         or state.get("retrieval_query")
@@ -34,20 +38,21 @@ def retrieve(state: AgentState, vectordb):
 
     chroma_filter = build_chroma_filter(filters)
 
-    print("\n🔎 [RETRIEVE] Query:", query)
-    print("🎯 Raw Filters:", filters)
-    print("🧱 Chroma Filter:", chroma_filter)
-
-    results = vectordb.similarity_search_with_score(
-        query=query,
-        k=settings.RETRIEVAL_TOP_K,
-        filter=chroma_filter,
+    logger.info(
+        f"[request_id={request_id}] Retrieve query='{query}' | raw_filters={filters} | chroma_filter={chroma_filter}"
     )
 
-    print("📚 Retrieved Docs Count:", len(results))
+    with log_timing(logger, "vector_retrieval", request_id):
+        results = vectordb.similarity_search_with_score(
+            query=query,
+            k=settings.RETRIEVAL_TOP_K,
+            filter=chroma_filter,
+        )
+
+    logger.info(f"[request_id={request_id}] Retrieved docs count={len(results)}")
 
     if not results:
-        print("❌ No documents retrieved!")
+        logger.warning(f"[request_id={request_id}] No documents retrieved")
         return {
             "context": "",
             "retrieved_docs": [],
@@ -61,13 +66,11 @@ def retrieve(state: AgentState, vectordb):
 
     for i, (doc, score) in enumerate(results, start=1):
         metadata = getattr(doc, "metadata", {})
-        content = doc.page_content[:300]
         numeric_score = float(score)
 
-        print(f"\n--- Doc {i} ---")
-        print("Score:", numeric_score)
-        print("Metadata:", metadata)
-        print(content)
+        logger.info(
+            f"[request_id={request_id}] Doc {i} | score={numeric_score} | source={metadata.get('source')} | metadata={metadata}"
+        )
 
         context_parts.append(doc.page_content)
         retrieved_docs.append({
@@ -79,8 +82,7 @@ def retrieve(state: AgentState, vectordb):
     context = "\n".join(context_parts)
     top_score = min(scores) if scores else None
 
-    print("📊 Retrieval Scores:", scores)
-    print("🏅 Top Score:", top_score)
+    logger.info(f"[request_id={request_id}] Retrieval scores={scores} | top_score={top_score}")
 
     return {
         "context": context,

@@ -1,8 +1,10 @@
 import re
 
 from app.config import settings
+from app.services.logging_utils import get_logger
 from app.state import AgentState
 
+logger = get_logger("app.validate_retrieval")
 
 STOP_WORDS = {
     "what", "is", "the", "a", "an", "of", "in", "on", "for",
@@ -19,6 +21,7 @@ def tokenize(text: str) -> set[str]:
 
 
 def validate_retrieval(state: AgentState):
+    request_id = state.get("request_id", "-")
     query = (
         state.get("rewritten_query")
         or state.get("retrieval_query")
@@ -28,13 +31,12 @@ def validate_retrieval(state: AgentState):
     top_score = state.get("top_score")
     retrieval_scores = state.get("retrieval_scores", [])
 
-    print("\n🧪 [VALIDATE] Checking retrieval relevance...")
-    print("📝 Validation Query:", query)
-    print("📉 Retrieval Scores:", retrieval_scores)
-    print("🏅 Top Score:", top_score)
+    logger.info(
+        f"[request_id={request_id}] Validation query='{query}' | scores={retrieval_scores} | top_score={top_score}"
+    )
 
     if not context.strip():
-        print("❌ [VALIDATE] Empty context -> ungrounded")
+        logger.warning(f"[request_id={request_id}] Empty context -> ungrounded")
         return {"retrieval_decision": "ungrounded"}
 
     query_terms = tokenize(query)
@@ -43,19 +45,15 @@ def validate_retrieval(state: AgentState):
     overlap = query_terms.intersection(context_terms)
     overlap_score = len(overlap) / max(len(query_terms), 1)
 
-    print("📝 Query Terms:", query_terms)
-    print("🔗 Overlap Terms:", overlap)
-    print("📊 Overlap Score:", round(overlap_score, 2))
-
     strong_vector_match = (
-        top_score is not None
-        and top_score <= settings.RETRIEVAL_SCORE_THRESHOLD
+        top_score is not None and top_score <= settings.RETRIEVAL_SCORE_THRESHOLD
     )
-
     strong_overlap = overlap_score >= settings.RETRIEVAL_OVERLAP_THRESHOLD
 
-    print("✅ Strong Vector Match:", strong_vector_match)
-    print("✅ Strong Overlap:", strong_overlap)
+    logger.info(
+        f"[request_id={request_id}] overlap_terms={overlap} | overlap_score={round(overlap_score, 2)} | "
+        f"strong_vector_match={strong_vector_match} | strong_overlap={strong_overlap}"
+    )
 
     if strong_vector_match and strong_overlap:
         decision = "grounded"
@@ -64,6 +62,5 @@ def validate_retrieval(state: AgentState):
     else:
         decision = "ungrounded"
 
-    print("✅ [VALIDATE] Decision:", decision)
-
+    logger.info(f"[request_id={request_id}] Retrieval decision={decision}")
     return {"retrieval_decision": decision}

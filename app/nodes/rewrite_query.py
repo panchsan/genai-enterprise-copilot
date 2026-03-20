@@ -1,8 +1,10 @@
 from app.config import settings
 from app.services.llm import get_azure_openai_client
+from app.services.logging_utils import get_logger, log_timing
 from app.state import AgentState
 
 client = get_azure_openai_client()
+logger = get_logger("app.rewrite_query")
 
 
 SYSTEM_PROMPT = """
@@ -43,10 +45,11 @@ What does the company policy say about attendance?
 
 
 def rewrite_query(state: AgentState):
+    request_id = state.get("request_id", "-")
     original_query = state.get("retrieval_query") or state["query"]
     chat_history = state.get("chat_history", [])
 
-    print("\n📝 [REWRITE] Original Retrieval Query:", original_query)
+    logger.info(f"[request_id={request_id}] Original retrieval query='{original_query}'")
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -71,17 +74,19 @@ def rewrite_query(state: AgentState):
         }
     )
 
-    response = client.chat.completions.create(
-        model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
-        messages=messages,
-        temperature=0,
-    )
+    with log_timing(logger, "rewrite_query_llm", request_id):
+        response = client.chat.completions.create(
+            model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
+            messages=messages,
+            temperature=0,
+        )
 
     rewritten_query = (response.choices[0].message.content or original_query).strip()
 
     if not rewritten_query:
         rewritten_query = original_query
+        logger.warning(f"[request_id={request_id}] Empty rewritten query; using original query")
 
-    print("✏️ [REWRITE] Rewritten Query:", rewritten_query)
+    logger.info(f"[request_id={request_id}] Rewritten query='{rewritten_query}'")
 
     return {"rewritten_query": rewritten_query}

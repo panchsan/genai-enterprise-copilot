@@ -2,6 +2,8 @@ from typing import TypedDict, List, Dict, Any, Optional
 
 
 class AgentState(TypedDict, total=False):
+    request_id: str
+    
     query: str
     retrieval_query: str
     rewritten_query: str
