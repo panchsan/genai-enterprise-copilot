@@ -33,11 +33,11 @@ Rules:
    - OR follow-up to a previous retrieval-based question
 
 3. Use "direct" only when:
-   - general knowledge question (not related to enterprise docs)
-   - standalone question
+   - general knowledge question
+   - standalone question unrelated to enterprise docs
 
 4. Use "fallback" for:
-   - weather, stock price, sports score, real-time external data
+   - weather, stock price, sports score, live external data
 
 5. Infer filters:
    - "HR policy" -> doc_type=policy, department=HR
@@ -106,7 +106,6 @@ def analyze_query(state: AgentState):
 
     print("\n🧠 [QUERY UNDERSTANDING] Incoming query:", query)
 
-    # Rule-based safety override for follow-ups
     if is_follow_up_query(query, chat_history):
         print("⚠️ [QUERY UNDERSTANDING] Detected follow-up query -> forcing retrieve route")
         return {

@@ -6,7 +6,9 @@ from app.state import AgentState
 STOP_WORDS = {
     "what", "is", "the", "a", "an", "of", "in", "on", "for",
     "to", "and", "does", "do", "about", "tell", "me", "are",
-    "this", "that", "with", "from", "our"
+    "this", "that", "with", "from", "our",
+    "explain", "simply", "simple", "summarize", "summary",
+    "more", "please", "terms"
 }
 
 
@@ -16,10 +18,15 @@ def tokenize(text: str) -> set[str]:
 
 
 def validate_retrieval(state: AgentState):
-    query = state.get("query", "")
+    query = (
+        state.get("rewritten_query")
+        or state.get("retrieval_query")
+        or state.get("query", "")
+    )
     context = state.get("context", "")
 
     print("\n🧪 [VALIDATE] Checking retrieval relevance...")
+    print("📝 Validation Query:", query)
 
     query_terms = tokenize(query)
     context_terms = tokenize(context)
@@ -31,10 +38,7 @@ def validate_retrieval(state: AgentState):
     print("🔗 Overlap Terms:", overlap)
     print("📊 Overlap Score:", round(overlap_score, 2))
 
-    if overlap_score >= 0.3:
-        decision = "grounded"
-    else:
-        decision = "ungrounded"
+    decision = "grounded" if overlap_score >= 0.3 else "ungrounded"
 
     print("✅ [VALIDATE] Decision:", decision)
 

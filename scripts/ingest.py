@@ -42,6 +42,23 @@ def get_department(filename: str) -> str:
     return "General"
 
 
+def build_clean_metadata(filename: str, original_metadata: dict) -> dict:
+    clean_metadata = {
+        "source": filename,
+        "document_id": filename,
+        "doc_type": get_doc_type(filename),
+        "department": get_department(filename),
+    }
+
+    if "page" in original_metadata:
+        clean_metadata["page"] = original_metadata["page"]
+
+    if "page_label" in original_metadata:
+        clean_metadata["page_label"] = original_metadata["page_label"]
+
+    return clean_metadata
+
+
 def load_documents():
     print("\n📄 Loading documents from data/ folder...")
 
@@ -69,10 +86,7 @@ def load_documents():
         docs = loader.load()
 
         for doc in docs:
-            doc.metadata["source"] = filename
-            doc.metadata["doc_type"] = get_doc_type(filename)
-            doc.metadata["department"] = get_department(filename)
-            doc.metadata["document_id"] = filename
+            doc.metadata = build_clean_metadata(filename, doc.metadata)
 
         documents.extend(docs)
         print(f"✅ Loaded {filename} ({len(docs)} raw docs)")

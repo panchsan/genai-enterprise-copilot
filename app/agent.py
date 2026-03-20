@@ -6,6 +6,7 @@ from app.nodes.generate import generate
 from app.nodes.query_understanding import analyze_query, route_query
 from app.nodes.retrieve import retrieve
 from app.nodes.rewrite_query import rewrite_query
+from app.nodes.session_context import apply_session_context
 from app.nodes.validate_retrieval import validate_retrieval
 from app.state import AgentState
 
@@ -17,6 +18,7 @@ def build_graph(vectordb):
         return retrieve(state, vectordb)
 
     graph.add_node("analyze_query", analyze_query)
+    graph.add_node("apply_session_context", apply_session_context)
     graph.add_node("rewrite_query", rewrite_query)
     graph.add_node("retrieve", retrieve_node)
     graph.add_node("validate_retrieval", validate_retrieval)
@@ -30,12 +32,13 @@ def build_graph(vectordb):
         "analyze_query",
         route_query,
         {
-            "retrieve": "rewrite_query",
+            "retrieve": "apply_session_context",
             "direct_answer": "direct_answer",
             "fallback": "fallback",
         },
     )
 
+    graph.add_edge("apply_session_context", "rewrite_query")
     graph.add_edge("rewrite_query", "retrieve")
     graph.add_edge("retrieve", "validate_retrieval")
 

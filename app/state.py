@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Dict, Any
+from typing import TypedDict, List, Dict, Any, Optional
 
 
 class AgentState(TypedDict, total=False):
@@ -13,6 +13,11 @@ class AgentState(TypedDict, total=False):
     chat_history: List[Dict[str, Any]]
 
     filters: Dict[str, Any]
+    session_context: Dict[str, Any]
 
     retrieved_docs: List[Dict[str, Any]]
     retrieval_decision: str
+
+    active_source: Optional[str]
+    last_route: Optional[str]
+    last_retrieval_query: Optional[str]
