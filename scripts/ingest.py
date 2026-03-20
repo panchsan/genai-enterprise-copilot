@@ -1,6 +1,7 @@
+import argparse
 import os
-import shutil
 import uuid
+from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
@@ -59,9 +60,30 @@ def build_clean_metadata(filename: str, original_metadata: dict) -> dict:
     return clean_metadata
 
 
-def load_documents():
-    print("\n📄 Loading documents from data/ folder...")
+def get_loader(filepath: str):
+    if filepath.endswith(".txt"):
+        return TextLoader(filepath, encoding="utf-8")
+    if filepath.endswith(".pdf"):
+        return PyPDFLoader(filepath)
+    if filepath.endswith(".csv"):
+        return CSVLoader(filepath)
+    raise ValueError(f"Unsupported file type: {filepath}")
 
+
+def load_single_document(filepath: str):
+    filename = os.path.basename(filepath)
+    loader = get_loader(filepath)
+    docs = loader.load()
+
+    for doc in docs:
+        doc.metadata = build_clean_metadata(filename, doc.metadata)
+
+    print(f"✅ Loaded {filename} ({len(docs)} raw docs)")
+    return docs
+
+
+def load_all_documents():
+    print("\n📄 Loading documents from data/ folder...")
     documents = []
 
     if not os.path.exists(settings.DATA_DIR):
@@ -73,23 +95,11 @@ def load_documents():
         if not os.path.isfile(filepath):
             continue
 
-        if filename.endswith(".txt"):
-            loader = TextLoader(filepath, encoding="utf-8")
-        elif filename.endswith(".pdf"):
-            loader = PyPDFLoader(filepath)
-        elif filename.endswith(".csv"):
-            loader = CSVLoader(filepath)
-        else:
-            print(f"⚠️ Skipping unsupported file: {filename}")
-            continue
-
-        docs = loader.load()
-
-        for doc in docs:
-            doc.metadata = build_clean_metadata(filename, doc.metadata)
-
-        documents.extend(docs)
-        print(f"✅ Loaded {filename} ({len(docs)} raw docs)")
+        try:
+            docs = load_single_document(filepath)
+            documents.extend(docs)
+        except ValueError as exc:
+            print(f"⚠️ Skipping file: {exc}")
 
     print(f"\n📊 Total raw documents loaded: {len(documents)}")
     return documents
@@ -99,43 +109,126 @@ def split_documents(documents):
     print("\n✂️ Splitting documents into chunks...")
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=300,
-        chunk_overlap=50,
+        chunk_size=settings.CHUNK_SIZE,
+        chunk_overlap=settings.CHUNK_OVERLAP,
     )
 
     chunks = splitter.split_documents(documents)
 
     for chunk in chunks:
+        document_id = chunk.metadata["document_id"]
         chunk.metadata["chunk_id"] = str(uuid.uuid4())
+        chunk.metadata["chunk_doc_ref"] = document_id
 
     print(f"✅ Created {len(chunks)} chunks")
     return chunks
 
 
-def recreate_vector_db(chunks):
-    print("\n🧹 Rebuilding vector DB...")
-
-    if os.path.exists(settings.PERSIST_DIR):
-        shutil.rmtree(settings.PERSIST_DIR)
-        print("🗑️ Old vector DB deleted")
-
-    Chroma.from_documents(
-        documents=chunks,
-        embedding=get_embeddings(),
+def get_vectorstore():
+    return Chroma(
         persist_directory=settings.PERSIST_DIR,
+        embedding_function=get_embeddings(),
     )
 
-    print("✅ Vector DB created successfully")
+
+def full_reindex():
+    print("\n🚀 Running FULL reindex...")
+
+    documents = load_all_documents()
+    chunks = split_documents(documents)
+
+    vectordb = get_vectorstore()
+
+    existing = vectordb.get()
+    existing_ids = existing.get("ids", [])
+    if existing_ids:
+        vectordb.delete(ids=existing_ids)
+        print(f"🗑️ Deleted {len(existing_ids)} existing vectors")
+
+    ids = [str(uuid.uuid4()) for _ in chunks]
+    vectordb.add_documents(documents=chunks, ids=ids)
+
+    print(f"✅ Full reindex complete. Indexed {len(chunks)} chunks")
+
+
+def delete_document(document_name: str):
+    print(f"\n🗑️ Deleting document from vector DB: {document_name}")
+
+    vectordb = get_vectorstore()
+
+    existing = vectordb.get(where={"document_id": document_name})
+    ids = existing.get("ids", [])
+
+    if not ids:
+        print("ℹ️ No indexed chunks found for this document")
+        return
+
+    vectordb.delete(ids=ids)
+    print(f"✅ Deleted {len(ids)} chunks for document: {document_name}")
+
+
+def upsert_document(filepath: str):
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"File not found: {filepath}")
+
+    filename = os.path.basename(filepath)
+
+    print(f"\n♻️ Upserting document: {filename}")
+
+    vectordb = get_vectorstore()
+
+    existing = vectordb.get(where={"document_id": filename})
+    existing_ids = existing.get("ids", [])
+
+    if existing_ids:
+        vectordb.delete(ids=existing_ids)
+        print(f"🗑️ Deleted {len(existing_ids)} old chunks for document: {filename}")
+
+    documents = load_single_document(filepath)
+    chunks = split_documents(documents)
+
+    ids = [str(uuid.uuid4()) for _ in chunks]
+    vectordb.add_documents(documents=chunks, ids=ids)
+
+    print(f"✅ Upsert complete. Indexed {len(chunks)} chunks for document: {filename}")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Document ingestion utility")
+
+    parser.add_argument(
+        "--mode",
+        choices=["full", "upsert", "delete"],
+        required=True,
+        help="Ingestion mode",
+    )
+
+    parser.add_argument(
+        "--file",
+        required=False,
+        help="Path to a specific file for upsert/delete modes",
+    )
+
+    return parser.parse_args()
 
 
 def main():
-    print("\n🚀 Starting ingestion pipeline...")
+    args = parse_args()
 
-    documents = load_documents()
-    chunks = split_documents(documents)
-    recreate_vector_db(chunks)
+    if args.mode == "full":
+        full_reindex()
+        return
 
-    print("\n🎉 Ingestion complete!")
+    if not args.file:
+        raise ValueError("--file is required for upsert and delete modes")
+
+    file_path = Path(args.file)
+    filename = file_path.name
+
+    if args.mode == "upsert":
+        upsert_document(str(file_path))
+    elif args.mode == "delete":
+        delete_document(filename)
 
 
 if __name__ == "__main__":

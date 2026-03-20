@@ -45,15 +45,7 @@ Remote work eligibility:
 ------------------------------------------------------------
 5. LEAVE POLICY
 ------------------------------------------------------------
-Annual leave entitlement:
-- Casual Leave (CL): 12 days
-- Sick Leave (SL): 10 days
-- Earned Leave (EL): 15 days
-
-Rules:
-- EL can be carried forward up to 30 days
-- SL requires medical proof if exceeding 2 consecutive days
-- Leave requests must be submitted via HRMS at least 2 days in advance
+The organization is in the process of creating leave policy, as of now no work no pay rule has been defined.
 
 ------------------------------------------------------------
 6. PERFORMANCE MANAGEMENT

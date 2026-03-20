@@ -18,5 +18,7 @@ class Settings:
     RETRIEVAL_SCORE_THRESHOLD = 1.2
     RETRIEVAL_OVERLAP_THRESHOLD = 0.3
 
+    CHUNK_SIZE = 300
+    CHUNK_OVERLAP = 50
 
 settings = Settings()
