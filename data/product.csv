@@ -1,0 +1,31 @@
+product_id,product_name,category,price_usd,launch_year,region,ai_capability,subscription_type,customer_segment,active_users
+111,GenAI Meeting Summarizer,Productivity,59.99,2024,Global,Speech-to-Text + NLP,Monthly,SMB,13500
+112,AI Contract Analyzer,Legal Tech,189.99,2025,North America,Document Parsing + NLP,Annual,Enterprise,2100
+113,Smart Email Generator,Productivity,39.99,2023,Global,Text Generation,Monthly,SMB,25000
+114,AI Resume Screener,HR Tech,129.99,2024,Global,NLP + Classification,Annual,Enterprise,5400
+115,Customer Sentiment Analyzer,Analytics,149.99,2023,Global,Sentiment Analysis,Monthly,Enterprise,7200
+116,AI Knowledge Graph Builder,AI Platform,219.99,2025,Europe,Graph AI,Annual,Enterprise,1800
+117,GenAI Marketing Copilot,Marketing AI,99.99,2024,Global,Content Generation,Monthly,SMB,16500
+118,AI Document Translator,Language AI,79.99,2023,APAC,Machine Translation,Monthly,SMB,30000
+119,Fraud Risk Scoring Engine,Security,269.99,2025,Global,Predictive Modeling,Annual,Enterprise,1600
+120,AI Supply Chain Optimizer,Operations,199.99,2024,Global,Optimization Algorithms,Annual,Enterprise,2200
+121,GenAI Sales Assistant,Sales AI,89.99,2023,Global,Conversational AI,Monthly,SMB,19000
+122,AI Image Recognition Suite,Vision AI,159.99,2024,Global,Computer Vision,Annual,Enterprise,4800
+123,Video Intelligence Platform,Media AI,179.99,2025,Global,Video Analytics,Annual,Enterprise,2600
+124,AI Personalization Engine,AI Platform,199.99,2024,Global,Recommendation Systems,Annual,Enterprise,3100
+125,Voice Biometrics System,Security,149.99,2025,Global,Speaker Recognition,Annual,Enterprise,1400
+126,AI Chat Moderation Tool,Content AI,69.99,2023,Global,Text Classification,Monthly,SMB,17500
+127,GenAI Report Generator,Productivity,119.99,2024,Global,Text Generation,Monthly,Enterprise,6800
+128,AI Code Review Assistant,Developer Tools,109.99,2025,Global,Code Analysis,Monthly,Developers,9200
+129,AI Data Cleaning Tool,Data Engineering,89.99,2023,Global,Data Processing,Monthly,SMB,13400
+130,AI Forecasting Engine,Analytics,169.99,2024,Global,Time Series Forecasting,Annual,Enterprise,2700
+131,Smart Document Classifier,AI Tools,99.99,2023,Global,Classification Models,Monthly,Enterprise,8900
+132,AI Compliance Monitor,RegTech,199.99,2025,Europe,Rule-based + ML,Annual,Enterprise,1500
+133,GenAI UX Designer,Design AI,129.99,2024,Global,UI Generation,Monthly,SMB,7600
+134,AI Knowledge Assistant,AI Platform,149.99,2023,Global,RAG + NLP,Monthly,Enterprise,8300
+135,AI Risk Assessment Tool,Finance AI,189.99,2025,Global,Risk Modeling,Annual,Enterprise,2100
+136,AI Call Center Optimizer,Operations,159.99,2024,Global,Speech Analytics,Annual,Enterprise,3400
+137,GenAI Story Generator,Creative AI,49.99,2023,Global,Text Generation,Monthly,SMB,41000
+138,AI Hiring Assistant,HR Tech,139.99,2024,Global,NLP + Matching,Annual,Enterprise,5000
+139,AI Pricing Optimization Engine,Finance AI,209.99,2025,Global,Optimization Models,Annual,Enterprise,1900
+140,AI Fraud Investigation Toolkit,Security,229.99,2025,Global,Graph + ML,Annual,Enterprise,1200

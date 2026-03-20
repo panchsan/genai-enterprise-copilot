@@ -1,0 +1,115 @@
+GENAI ENTERPRISE COPILOT
+FINANCE AND ACCOUNTING POLICY MANUAL
+Version: 3.0
+Effective Date: January 2026
+
+------------------------------------------------------------
+1. PURPOSE
+------------------------------------------------------------
+This document defines financial governance, budgeting, expense management, and compliance standards for the organization.
+
+------------------------------------------------------------
+2. EXPENSE MANAGEMENT
+------------------------------------------------------------
+Eligible expenses:
+- Business travel
+- Client meetings
+- Software subscriptions
+- Office supplies
+
+Submission rules:
+- Claims must be submitted within 30 days
+- Receipts are mandatory for all claims above ₹500
+
+Approval hierarchy:
+- Manager → Finance → Department Head
+
+------------------------------------------------------------
+3. TRAVEL POLICY
+------------------------------------------------------------
+Domestic Travel:
+- Budget limit: ₹10,000 per trip
+- Economy class only
+
+International Travel:
+- Requires VP approval
+- Business class allowed for flights exceeding 6 hours
+
+Accommodation:
+- Preferred hotels with corporate tie-ups
+- Max limit: ₹7,000/night (domestic)
+
+------------------------------------------------------------
+4. PROCUREMENT POLICY
+------------------------------------------------------------
+Procurement thresholds:
+- Below ₹50,000: Manager approval
+- Above ₹50,000: Finance Head approval
+
+Requirements:
+- Minimum 3 vendor quotations
+- Vendor evaluation based on cost, quality, and delivery timelines
+
+------------------------------------------------------------
+5. INVOICING AND PAYMENTS
+------------------------------------------------------------
+All invoices must include:
+- GST number
+- Vendor details
+- Payment terms
+
+Standard payment cycle:
+- Net 30 days
+
+Late payment penalties will be handled as per contractual agreements.
+
+------------------------------------------------------------
+6. PAYROLL MANAGEMENT
+------------------------------------------------------------
+Salary processing:
+- Last working day of each month
+
+Components:
+- Fixed pay
+- Variable pay
+- Bonuses (performance-based)
+
+Deductions:
+- Income tax (TDS)
+- Provident Fund (PF)
+- Professional tax
+
+------------------------------------------------------------
+7. BUDGETING AND FORECASTING
+------------------------------------------------------------
+Each department receives an annual budget allocation.
+
+Review cycle:
+- Quarterly reviews
+- Monthly variance tracking
+
+Variance beyond 10% requires justification.
+
+------------------------------------------------------------
+8. AUDIT AND COMPLIANCE
+------------------------------------------------------------
+Audit types:
+- Internal audit: Quarterly
+- External audit: Annual
+
+Compliance areas:
+- GST regulations
+- Income tax laws
+- Corporate governance standards
+
+------------------------------------------------------------
+9. FRAUD PREVENTION
+------------------------------------------------------------
+Zero tolerance for financial fraud.
+
+All suspicious activities must be reported to:
+finance-compliance@genai-copilot.com
+
+------------------------------------------------------------
+END OF DOCUMENT
+------------------------------------------------------------

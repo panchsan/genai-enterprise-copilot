@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+langchain
+langgraph
+openai
+langchain_chroma
+pypdf
+pandas
+tiktoken
+azure-identity
+python-dotenv
+langchain-text-splitters
+langchain-core
+langchain_openai 
+langchain-community

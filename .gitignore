@@ -1,0 +1,141 @@
+# ==============================
+
+# 🐍 Python
+
+# ==============================
+
+**pycache**/
+*.py[cod]
+*$py.class
+app/__pycache__/agent.cpython-312.pyc
+app/__pycache__/config.cpython-312.pyc
+app/__pycache__/main.cpython-312.pyc
+app/__pycache__/memory.cpython-312.pyc
+app/__pycache__/state.cpython-312.pyc
+app/__pycache__/tools.cpython-312.pyc
+
+# ==============================
+
+# 🧪 Virtual Environment
+
+# ==============================
+
+venv/
+.venv/
+env/
+ENV/
+
+# ==============================
+
+# 🔐 Environment Variables
+
+# ==============================
+
+.env
+.env.*
+*.env
+
+# ==============================
+
+# 🧠 Vector DB (Chroma)
+
+# ==============================
+
+chroma_db/
+chroma_db/*
+
+# ==============================
+
+# 🗄️ Local Databases
+
+# ==============================
+
+chat_memory.db
+*.sqlite3
+*.db
+
+# ==============================
+
+# 📦 Logs
+
+# ==============================
+
+*.log
+logs/
+
+# ==============================
+
+# 🧪 Testing / Coverage
+
+# ==============================
+
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ==============================
+
+# 🧰 IDE / Editor
+
+# ==============================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==============================
+
+# 💻 OS Files
+
+# ==============================
+
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ==============================
+
+# 🚀 Build / Distribution
+
+# ==============================
+
+build/
+dist/
+*.egg-info/
+
+# ==============================
+
+# 🐳 Docker (optional)
+
+# ==============================
+
+docker-compose.override.yml
+*.tar
+
+# ==============================
+
+# 📄 Optional: Ignore data (if sensitive)
+
+# ==============================
+
+# data/
+
+# *.csv
+
+# *.json
+
+# *.txt
+
+# ==============================
+
+# 🔑 Azure / Credentials
+
+# ==============================
+
+.azure/
+*.pem
+*.key
+*.crt
+

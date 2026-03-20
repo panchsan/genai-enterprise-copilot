@@ -1,0 +1,63 @@
+from langgraph.graph import END, StateGraph
+
+from app.nodes.direct_answer import direct_answer
+from app.nodes.fallback import fallback
+from app.nodes.generate import generate
+from app.nodes.query_understanding import analyze_query, route_query
+from app.nodes.retrieve import retrieve
+from app.nodes.rewrite_query import rewrite_query
+from app.nodes.validate_retrieval import validate_retrieval
+from app.state import AgentState
+
+
+def build_graph(vectordb):
+    graph = StateGraph(AgentState)
+
+    def retrieve_node(state: AgentState):
+        return retrieve(state, vectordb)
+
+    graph.add_node("analyze_query", analyze_query)
+    graph.add_node("rewrite_query", rewrite_query)
+    graph.add_node("retrieve", retrieve_node)
+    graph.add_node("validate_retrieval", validate_retrieval)
+    graph.add_node("generate", generate)
+    graph.add_node("direct_answer", direct_answer)
+    graph.add_node("fallback", fallback)
+
+    graph.set_entry_point("analyze_query")
+
+    graph.add_conditional_edges(
+        "analyze_query",
+        route_query,
+        {
+            "retrieve": "rewrite_query",
+            "direct_answer": "direct_answer",
+            "fallback": "fallback",
+        },
+    )
+
+    graph.add_edge("rewrite_query", "retrieve")
+    graph.add_edge("retrieve", "validate_retrieval")
+
+    def route_after_validation(state: AgentState):
+        decision = state.get("retrieval_decision", "ungrounded")
+        print("🔀 [POST-VALIDATION ROUTER] Decision:", decision)
+
+        if decision == "grounded":
+            return "generate"
+        return "direct_answer"
+
+    graph.add_conditional_edges(
+        "validate_retrieval",
+        route_after_validation,
+        {
+            "generate": "generate",
+            "direct_answer": "direct_answer",
+        },
+    )
+
+    graph.add_edge("generate", END)
+    graph.add_edge("direct_answer", END)
+    graph.add_edge("fallback", END)
+
+    return graph.compile()

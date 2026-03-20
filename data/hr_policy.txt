@@ -1,0 +1,118 @@
+GENAI ENTERPRISE COPILOT
+HUMAN RESOURCES POLICY MANUAL
+Version: 2.1
+Effective Date: January 2026
+
+------------------------------------------------------------
+1. INTRODUCTION
+------------------------------------------------------------
+This Human Resources Policy Manual outlines the policies, procedures, and guidelines governing employment practices at GenAI Enterprise Copilot. The objective is to ensure consistency, transparency, and compliance with applicable labor laws.
+
+------------------------------------------------------------
+2. EMPLOYMENT CLASSIFICATION
+------------------------------------------------------------
+Employees are classified as:
+- Full-Time Employees (FTE)
+- Contractual Employees
+- Interns
+
+Each category is governed by separate compensation and benefits structures.
+
+------------------------------------------------------------
+3. WORKING HOURS AND ATTENDANCE
+------------------------------------------------------------
+Standard working hours:
+- 40 hours per week
+- Core hours: 10:00 AM – 4:00 PM IST
+
+Flexible working window:
+- Login between 8:00 AM – 11:00 AM
+- Logout after completion of 8 hours
+
+Attendance is tracked via the internal HRMS system.
+Repeated non-compliance may lead to disciplinary action.
+
+------------------------------------------------------------
+4. HYBRID WORK POLICY
+------------------------------------------------------------
+Employees are required to work from the office for a minimum of 3 days per week.
+
+Remote work eligibility:
+- Based on role requirements
+- Subject to manager approval
+- Must maintain availability during core hours
+
+------------------------------------------------------------
+5. LEAVE POLICY
+------------------------------------------------------------
+Annual leave entitlement:
+- Casual Leave (CL): 12 days
+- Sick Leave (SL): 10 days
+- Earned Leave (EL): 15 days
+
+Rules:
+- EL can be carried forward up to 30 days
+- SL requires medical proof if exceeding 2 consecutive days
+- Leave requests must be submitted via HRMS at least 2 days in advance
+
+------------------------------------------------------------
+6. PERFORMANCE MANAGEMENT
+------------------------------------------------------------
+Performance evaluations are conducted bi-annually:
+- Mid-Year Review (June)
+- Annual Review (December)
+
+Evaluation criteria:
+- Technical competency
+- Delivery excellence
+- Collaboration and communication
+- Innovation contribution
+
+Employees are assigned performance ratings from 1 to 5.
+
+------------------------------------------------------------
+7. LEARNING AND DEVELOPMENT
+------------------------------------------------------------
+Employees are expected to complete a minimum of 40 hours of training annually.
+
+Supported programs:
+- Internal LMS certifications
+- External platforms (Coursera, Udemy, DeepLearning.AI)
+
+Reimbursement is available up to ₹50,000 per year for approved certifications.
+
+------------------------------------------------------------
+8. CODE OF CONDUCT
+------------------------------------------------------------
+Employees must adhere to professional standards including:
+- Respectful workplace behavior
+- Zero tolerance for harassment or discrimination
+- Ethical use of company resources
+
+Violations may result in disciplinary actions up to termination.
+
+------------------------------------------------------------
+9. DATA SECURITY AND CONFIDENTIALITY
+------------------------------------------------------------
+Employees must:
+- Protect sensitive company and client data
+- Use only approved tools and platforms
+- Avoid sharing credentials
+
+Any data breach must be reported within 24 hours.
+
+------------------------------------------------------------
+10. EXIT AND SEPARATION POLICY
+------------------------------------------------------------
+Notice period:
+- Standard: 60 days
+- Buyout option available with approval
+
+Exit requirements:
+- Knowledge transfer completion
+- Asset return
+- Clearance from all departments
+
+------------------------------------------------------------
+END OF DOCUMENT
+------------------------------------------------------------
