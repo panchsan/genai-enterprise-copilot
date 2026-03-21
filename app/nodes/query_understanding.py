@@ -1,57 +1,14 @@
 import json
 
 from app.config import settings
-from app.services.llm import get_azure_openai_client
-from app.services.logging_utils import get_logger, log_timing
+from app.prompts import QUERY_UNDERSTANDING_PROMPT
 from app.services.llm import get_azure_openai_client, safe_chat_completion
+from app.services.logging_utils import get_logger, log_timing
 from app.state import AgentState
 
 client = get_azure_openai_client()
 logger = get_logger("app.query_understanding")
 
-SYSTEM_PROMPT = """
-You are a query analysis component for an enterprise RAG assistant.
-
-Return ONLY valid JSON:
-
-{
-  "route": "retrieve" | "direct" | "fallback",
-  "retrieval_query": "<string>",
-  "filters": {
-    "doc_type": "<optional string>",
-    "department": "<optional string>",
-    "source": "<optional string>"
-  }
-}
-
-Rules:
-
-1. If the query is a FOLLOW-UP (e.g. "explain that", "what about", "summarize that", "tell me more"):
-   -> ALWAYS use route = "retrieve"
-   -> Use previous conversation context to infer meaning
-
-2. Use "retrieve" when:
-   - query relates to company docs, policies, onboarding, internal knowledge
-   - OR follow-up to a previous retrieval-based question
-
-3. Use "direct" only when:
-   - general knowledge question
-   - standalone question unrelated to enterprise docs
-
-4. Use "fallback" for:
-   - weather, stock price, sports score, live external data
-
-5. Infer filters:
-   - "HR policy" -> doc_type=policy, department=HR
-   - "finance policy" -> doc_type=policy, department=Finance
-   - "onboarding" -> doc_type=onboarding
-
-6. retrieval_query:
-   - clean and concise
-   - include inferred context for follow-ups
-
-Return ONLY JSON.
-""".strip()
 
 FOLLOW_UP_KEYWORDS = [
     "explain that",
@@ -110,13 +67,13 @@ def analyze_query(state: AgentState):
             "filters": state.get("filters", {}) or {},
         }
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": QUERY_UNDERSTANDING_PROMPT}]
 
     if chat_history:
         messages.append(
             {
                 "role": "system",
-                "content": f"Recent chat history: {json.dumps(chat_history[-6:])}",
+                "content": f"Recent chat history: {json.dumps(chat_history[-settings.MAX_CHAT_HISTORY_MESSAGES:])}",
             }
         )
 
@@ -128,7 +85,7 @@ def analyze_query(state: AgentState):
                 client,
                 model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
                 messages=messages,
-                temperature=0,
+                temperature=settings.LLM_TEMPERATURE_DETERMINISTIC,
             )
 
         raw_output = response.choices[0].message.content or "{}"
@@ -150,6 +107,7 @@ def analyze_query(state: AgentState):
             "retrieval_query": query,
             "filters": {},
         }
+
     route = parsed.get("route", "direct")
     retrieval_query = parsed.get("retrieval_query", query)
     filters = parsed.get("filters", {}) or {}

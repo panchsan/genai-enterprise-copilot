@@ -1,7 +1,7 @@
 from app.config import settings
-from app.services.llm import get_azure_openai_client
-from app.services.logging_utils import get_logger, log_timing
+from app.prompts import GROUNDED_GENERATION_SYSTEM_PROMPT, GROUNDING_FAILURE_RESPONSE
 from app.services.llm import get_azure_openai_client, safe_chat_completion
+from app.services.logging_utils import get_logger, log_timing
 from app.state import AgentState
 
 client = get_azure_openai_client()
@@ -22,15 +22,11 @@ def generate(state: AgentState):
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are a helpful assistant. "
-                "Use the provided context to answer the question. "
-                "If the answer is not in the context, say 'I don't know'."
-            ),
+            "content": GROUNDED_GENERATION_SYSTEM_PROMPT,
         }
     ]
 
-    for msg in chat_history[-6:]:
+    for msg in chat_history[-settings.MAX_CHAT_HISTORY_MESSAGES:]:
         messages.append(msg)
 
     messages.append(
@@ -46,12 +42,13 @@ def generate(state: AgentState):
                 client,
                 model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
                 messages=messages,
+                temperature=settings.LLM_TEMPERATURE_DEFAULT,
             )
 
         answer = response.choices[0].message.content or "I don't know"
     except Exception as exc:
         logger.error(f"[request_id={request_id}] Grounded generation failed: {exc}")
-        answer = "I’m sorry, I couldn’t generate a grounded answer right now."
+        answer = GROUNDING_FAILURE_RESPONSE
 
     logger.info(
         f"[request_id={request_id}] Grounded answer generated | "

@@ -1,3 +1,4 @@
+from app.prompts import FALLBACK_RESPONSE
 from app.services.logging_utils import get_logger
 from app.state import AgentState
 
@@ -11,5 +12,5 @@ def fallback(state: AgentState):
     )
 
     return {
-        "answer": "I cannot answer that from the current knowledge base."
+        "answer": FALLBACK_RESPONSE
     }

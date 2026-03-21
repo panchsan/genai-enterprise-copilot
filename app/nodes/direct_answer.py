@@ -1,7 +1,7 @@
 from app.config import settings
-from app.services.llm import get_azure_openai_client
-from app.services.logging_utils import get_logger, log_timing
+from app.prompts import DIRECT_ANSWER_SYSTEM_PROMPT, DIRECT_FAILURE_RESPONSE
 from app.services.llm import get_azure_openai_client, safe_chat_completion
+from app.services.logging_utils import get_logger, log_timing
 from app.state import AgentState
 
 client = get_azure_openai_client()
@@ -17,11 +17,11 @@ def direct_answer(state: AgentState):
     messages = [
         {
             "role": "system",
-            "content": "You are a helpful assistant. Answer briefly and clearly.",
+            "content": DIRECT_ANSWER_SYSTEM_PROMPT,
         }
     ]
 
-    for msg in chat_history[-6:]:
+    for msg in chat_history[-settings.MAX_CHAT_HISTORY_MESSAGES:]:
         messages.append(msg)
 
     messages.append(
@@ -37,12 +37,13 @@ def direct_answer(state: AgentState):
                 client,
                 model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
                 messages=messages,
+                temperature=settings.LLM_TEMPERATURE_DEFAULT,
             )
 
         answer = response.choices[0].message.content or "I don't know"
     except Exception as exc:
         logger.error(f"[request_id={request_id}] Direct answer generation failed: {exc}")
-        answer = "I’m sorry, I couldn’t generate an answer right now."
+        answer = DIRECT_FAILURE_RESPONSE
 
     logger.info(
         f"[request_id={request_id}] Direct answer generated | "
