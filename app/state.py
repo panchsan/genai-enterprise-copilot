@@ -3,11 +3,12 @@ from typing import TypedDict, List, Dict, Any, Optional
 
 class AgentState(TypedDict, total=False):
     request_id: str
-    
+
     query: str
     retrieval_query: str
     rewritten_query: str
     route: str
+    action: str
     context: str
     answer: str
 
@@ -16,6 +17,7 @@ class AgentState(TypedDict, total=False):
 
     filters: Dict[str, Any]
     session_context: Dict[str, Any]
+    target_sources: List[str]
 
     retrieved_docs: List[Dict[str, Any]]
     retrieval_decision: str

@@ -111,6 +111,8 @@ def chat(request: ChatRequest):
         return {
             "request_id": request_id,
             "route": result.get("route"),
+            "action": result.get("action"),
+            "target_sources": result.get("target_sources", []),
             "retrieval_query": result.get("retrieval_query"),
             "rewritten_query": result.get("rewritten_query"),
             "applied_filters": result.get("filters", {}),

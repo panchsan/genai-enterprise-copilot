@@ -5,12 +5,14 @@ Return ONLY valid JSON:
 
 {
   "route": "retrieve" | "direct" | "fallback",
+  "action": "qa" | "summarize_document" | "answer_by_source" | "compare_documents",
   "retrieval_query": "<string>",
   "filters": {
     "doc_type": "<optional string>",
     "department": "<optional string>",
     "source": "<optional string>"
-  }
+  },
+  "target_sources": ["<optional source names>"]
 }
 
 Rules:
@@ -35,7 +37,17 @@ Rules:
    - "finance policy" -> doc_type=policy, department=Finance
    - "onboarding" -> doc_type=onboarding
 
-6. retrieval_query:
+6. Actions:
+   - Use "qa" for normal question answering.
+   - Use "summarize_document" when user asks to summarize a specific document or source.
+   - Use "answer_by_source" when user asks about a named source/document.
+   - Use "compare_documents" when user asks to compare two documents/sources.
+
+7. target_sources:
+   - include exact source names if clearly mentioned, e.g. ["hr_policy.txt"]
+   - for compare, include both if present
+
+8. retrieval_query:
    - clean and concise
    - include inferred context for follow-ups
 
@@ -55,28 +67,6 @@ Rules:
 4. Make the rewritten query concise and retrieval-friendly.
 5. If the user's latest message is already standalone, return it unchanged.
 6. Return ONLY the rewritten query text. No explanation. No quotes.
-
-Examples:
-History:
-User: What does HR policy say about leave?
-Assistant: ...
-User: Explain that simply
-Output:
-Explain the HR leave policy in simple terms
-
-History:
-User: Summarize onboarding document
-Assistant: ...
-User: What about finance?
-Output:
-Summarize the finance policy document
-
-History:
-User: What does the company policy say about working hours?
-Assistant: ...
-User: What does it say about attendance?
-Output:
-What does the company policy say about attendance?
 """.strip()
 
 
@@ -86,6 +76,21 @@ You are a helpful enterprise assistant.
 Use only the provided context to answer the question.
 If the answer is not present in the context, say "I don't know".
 Prefer concise, accurate, grounded answers.
+""".strip()
+
+
+DOCUMENT_ACTION_SYSTEM_PROMPT = """
+You are a helpful enterprise assistant.
+
+Use only the provided context.
+
+If the user asks for a summary:
+- provide a concise summary of the document.
+
+If the user asks to compare documents:
+- compare them clearly by similarities and differences.
+
+If the answer is not present in the context, say "I don't know".
 """.strip()
 
 

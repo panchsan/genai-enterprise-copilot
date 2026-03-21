@@ -22,9 +22,7 @@ def build_chroma_filter(filters: dict | None):
         key, value = next(iter(cleaned_filters.items()))
         return {key: value}
 
-    return {
-        "$and": [{key: value} for key, value in cleaned_filters.items()]
-    }
+    return {"$and": [{key: value} for key, value in cleaned_filters.items()]}
 
 
 def retrieve(state: AgentState, vectordb):
@@ -34,19 +32,26 @@ def retrieve(state: AgentState, vectordb):
         or state.get("retrieval_query")
         or state["query"]
     )
-    filters = state.get("filters", {})
+    filters = state.get("filters", {}) or {}
+    target_sources = state.get("target_sources", []) or []
+    action = state.get("action", "qa")
+
+    if action in {"summarize_document", "answer_by_source"} and target_sources:
+        if len(target_sources) == 1:
+            filters = {**filters, "source": target_sources[0]}
 
     chroma_filter = build_chroma_filter(filters)
 
     logger.info(
-        f"[request_id={request_id}] Retrieve query='{query}' | raw_filters={filters} | chroma_filter={chroma_filter}"
+        f"[request_id={request_id}] Retrieve query='{query}' | action={action} | "
+        f"raw_filters={filters} | target_sources={target_sources} | chroma_filter={chroma_filter}"
     )
 
     try:
         with log_timing(logger, "vector_retrieval", request_id):
             results = vectordb.similarity_search_with_score(
                 query=query,
-                k=settings.RETRIEVAL_TOP_K,
+                k=settings.RETRIEVAL_TOP_K if action != "compare_documents" else 6,
                 filter=chroma_filter,
             )
     except Exception as exc:
@@ -81,14 +86,16 @@ def retrieve(state: AgentState, vectordb):
             f"[request_id={request_id}] Doc {i} | score={numeric_score} | source={metadata.get('source')} | metadata={metadata}"
         )
 
-        context_parts.append(doc.page_content)
+        context_parts.append(
+            f"[SOURCE: {metadata.get('source', 'unknown')}]\n{doc.page_content}"
+        )
         retrieved_docs.append({
             "page_content": doc.page_content,
             "metadata": metadata,
         })
         scores.append(numeric_score)
 
-    context = "\n".join(context_parts)
+    context = "\n\n".join(context_parts)
     top_score = min(scores) if scores else None
 
     logger.info(f"[request_id={request_id}] Retrieval scores={scores} | top_score={top_score}")

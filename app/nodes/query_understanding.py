@@ -63,8 +63,10 @@ def analyze_query(state: AgentState):
         logger.info(f"[request_id={request_id}] Follow-up detected -> forcing retrieve route")
         return {
             "route": "retrieve",
+            "action": "qa",
             "retrieval_query": query,
             "filters": state.get("filters", {}) or {},
+            "target_sources": [],
         }
 
     messages = [{"role": "system", "content": QUERY_UNDERSTANDING_PROMPT}]
@@ -97,32 +99,44 @@ def analyze_query(state: AgentState):
             logger.warning(f"[request_id={request_id}] Failed to parse model output; using safe defaults")
             parsed = {
                 "route": "direct",
+                "action": "qa",
                 "retrieval_query": query,
                 "filters": {},
+                "target_sources": [],
             }
     except Exception as exc:
         logger.error(f"[request_id={request_id}] Query understanding failed: {exc}")
         parsed = {
             "route": "direct",
+            "action": "qa",
             "retrieval_query": query,
             "filters": {},
+            "target_sources": [],
         }
 
     route = parsed.get("route", "direct")
+    action = parsed.get("action", "qa")
     retrieval_query = parsed.get("retrieval_query", query)
     filters = parsed.get("filters", {}) or {}
+    target_sources = parsed.get("target_sources", []) or []
 
     if route not in {"retrieve", "direct", "fallback"}:
         route = "direct"
 
+    if action not in {"qa", "summarize_document", "answer_by_source", "compare_documents"}:
+        action = "qa"
+
     logger.info(
-        f"[request_id={request_id}] route={route} | retrieval_query='{retrieval_query}' | filters={filters}"
+        f"[request_id={request_id}] route={route} | action={action} | "
+        f"retrieval_query='{retrieval_query}' | filters={filters} | target_sources={target_sources}"
     )
 
     return {
         "route": route,
+        "action": action,
         "retrieval_query": retrieval_query,
         "filters": filters,
+        "target_sources": target_sources,
     }
 
 
