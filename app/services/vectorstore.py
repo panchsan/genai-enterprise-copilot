@@ -1,6 +1,7 @@
 from azure.identity import AzureCliCredential, get_bearer_token_provider
 from langchain_chroma import Chroma
 from langchain_openai import AzureOpenAIEmbeddings
+from typing import List
 
 from app.config import settings
 
@@ -28,3 +29,25 @@ def get_vectorstore() -> Chroma:
         persist_directory=settings.PERSIST_DIR,
         embedding_function=get_embeddings(),
     )
+
+def get_known_sources(vectordb) -> List[str]:
+    """
+    Extract known source names from the underlying Chroma collection metadata.
+    Works best when metadata contains 'source'.
+    """
+    try:
+        collection = vectordb._collection
+        raw = collection.get(include=["metadatas"])
+        metadatas = raw.get("metadatas", []) or []
+
+        sources = set()
+        for row in metadatas:
+            if isinstance(row, dict):
+                source = row.get("source")
+                if source:
+                    sources.add(source)
+
+        return sorted(sources)
+
+    except Exception:
+        return []

@@ -16,42 +16,20 @@ Return ONLY valid JSON:
 }
 
 Rules:
-
-1. If the query is a FOLLOW-UP (e.g. "explain that", "what about", "summarize that", "tell me more"):
-   -> ALWAYS use route = "retrieve"
-   -> Use previous conversation context to infer meaning
-
-2. Use "retrieve" when:
-   - query relates to company docs, policies, onboarding, internal knowledge
-   - OR follow-up to a previous retrieval-based question
-
-3. Use "direct" only when:
-   - general knowledge question
-   - standalone question unrelated to enterprise docs
-
-4. Use "fallback" for:
-   - weather, stock price, sports score, live external data
-
-5. Infer filters:
-   - "HR policy" -> doc_type=policy, department=HR
-   - "finance policy" -> doc_type=policy, department=Finance
-   - "onboarding" -> doc_type=onboarding
-
-6. Actions:
-   - Use "qa" for normal question answering.
-   - Use "summarize_document" when user asks to summarize a specific document or source.
-   - Use "answer_by_source" when user asks about a named source/document.
-   - Use "compare_documents" when user asks to compare two documents/sources.
-
-7. target_sources:
-   - include exact source names if clearly mentioned, e.g. ["hr_policy.txt"]
-   - for compare, include both if present
-
-8. retrieval_query:
-   - clean and concise
-   - include inferred context for follow-ups
-
-Return ONLY JSON.
+1. Use "target_sources" only when the user explicitly refers to a known source or file by name.
+2. Do NOT invent filenames or guess exact file names.
+3. If the user refers to a document conceptually, such as:
+   - "hybrid work policy"
+   - "leave policy"
+   - "attendance document"
+   prefer:
+   - a strong semantic retrieval_query
+   - relevant filters like doc_type or department
+   - empty target_sources unless the exact source name is clearly known.
+4. If unsure about the exact source name, return "target_sources": [].
+5. Prefer semantic retrieval over speculative filename guessing.
+6. Use filters.source only when the user explicitly names the source.
+7. Keep retrieval_query concise, meaningful, and retrieval-friendly.
 """.strip()
 
 

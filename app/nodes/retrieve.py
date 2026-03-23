@@ -1,5 +1,9 @@
+from copy import deepcopy
+
 from app.config import settings
 from app.services.logging_utils import get_logger, log_timing
+from app.services.metadata_utils import resolve_target_source
+from app.services.vectorstore import get_known_sources
 from app.state import AgentState
 
 logger = get_logger("app.retrieve")
@@ -9,12 +13,7 @@ def build_chroma_filter(filters: dict | None):
     if not filters:
         return None
 
-    cleaned_filters = {
-        key: value
-        for key, value in filters.items()
-        if value is not None and value != ""
-    }
-
+    cleaned_filters = {k: v for k, v in filters.items() if v is not None and v != ""}
     if not cleaned_filters:
         return None
 
@@ -22,51 +21,19 @@ def build_chroma_filter(filters: dict | None):
         key, value = next(iter(cleaned_filters.items()))
         return {key: value}
 
-    return {"$and": [{key: value} for key, value in cleaned_filters.items()]}
+    return {"$and": [{k: v} for k, v in cleaned_filters.items()]}
 
 
-def retrieve(state: AgentState, vectordb):
-    request_id = state.get("request_id", "-")
-    query = (
-        state.get("rewritten_query")
-        or state.get("retrieval_query")
-        or state["query"]
-    )
-    filters = state.get("filters", {}) or {}
-    target_sources = state.get("target_sources", []) or []
-    action = state.get("action", "qa")
-
-    if action in {"summarize_document", "answer_by_source"} and target_sources:
-        if len(target_sources) == 1:
-            filters = {**filters, "source": target_sources[0]}
-
-    chroma_filter = build_chroma_filter(filters)
-
-    logger.info(
-        f"[request_id={request_id}] Retrieve query='{query}' | action={action} | "
-        f"raw_filters={filters} | target_sources={target_sources} | chroma_filter={chroma_filter}"
+def _run_search(vectordb, query: str, action: str, chroma_filter):
+    return vectordb.similarity_search_with_score(
+        query=query,
+        k=settings.RETRIEVAL_TOP_K if action != "compare_documents" else 6,
+        filter=chroma_filter,
     )
 
-    try:
-        with log_timing(logger, "vector_retrieval", request_id):
-            results = vectordb.similarity_search_with_score(
-                query=query,
-                k=settings.RETRIEVAL_TOP_K if action != "compare_documents" else 6,
-                filter=chroma_filter,
-            )
-    except Exception as exc:
-        logger.error(f"[request_id={request_id}] Retrieval failed: {exc}")
-        return {
-            "context": "",
-            "retrieved_docs": [],
-            "retrieval_scores": [],
-            "top_score": None,
-        }
 
-    logger.info(f"[request_id={request_id}] Retrieved docs count={len(results)}")
-
+def _format_results(results):
     if not results:
-        logger.warning(f"[request_id={request_id}] No documents retrieved")
         return {
             "context": "",
             "retrieved_docs": [],
@@ -78,14 +45,8 @@ def retrieve(state: AgentState, vectordb):
     retrieved_docs = []
     scores = []
 
-    for i, (doc, score) in enumerate(results, start=1):
-        metadata = getattr(doc, "metadata", {})
-        numeric_score = float(score)
-
-        logger.info(
-            f"[request_id={request_id}] Doc {i} | score={numeric_score} | source={metadata.get('source')} | metadata={metadata}"
-        )
-
+    for doc, score in results:
+        metadata = getattr(doc, "metadata", {}) or {}
         context_parts.append(
             f"[SOURCE: {metadata.get('source', 'unknown')}]\n{doc.page_content}"
         )
@@ -93,16 +54,126 @@ def retrieve(state: AgentState, vectordb):
             "page_content": doc.page_content,
             "metadata": metadata,
         })
-        scores.append(numeric_score)
-
-    context = "\n\n".join(context_parts)
-    top_score = min(scores) if scores else None
-
-    logger.info(f"[request_id={request_id}] Retrieval scores={scores} | top_score={top_score}")
+        scores.append(float(score))
 
     return {
-        "context": context,
+        "context": "\n\n".join(context_parts),
         "retrieved_docs": retrieved_docs,
         "retrieval_scores": scores,
-        "top_score": top_score,
+        "top_score": min(scores) if scores else None,
     }
+
+
+def retrieve(state: AgentState, vectordb):
+    request_id = state.get("request_id", "-")
+    query = state.get("rewritten_query") or state.get("retrieval_query") or state["query"]
+    filters = deepcopy(state.get("filters", {}) or {})
+    target_sources = state.get("target_sources", []) or []
+    action = state.get("action", "qa")
+
+    inferred_single_source = (
+        action in {"summarize_document", "answer_by_source"}
+        and len(target_sources) == 1
+        and "source" not in filters  # do not override explicit user filter
+    )
+
+    strict_filters = deepcopy(filters)
+    resolved_source = None
+
+    if inferred_single_source:
+        known_sources = get_known_sources(vectordb)
+        guessed_source = target_sources[0]
+        resolved_source = resolve_target_source(guessed_source, known_sources)
+
+        if resolved_source:
+            strict_filters["source"] = resolved_source
+            logger.info(
+                f"[request_id={request_id}] Resolved inferred target source "
+                f"'{guessed_source}' -> '{resolved_source}'"
+            )
+        else:
+            logger.warning(
+                f"[request_id={request_id}] Could not resolve inferred target source "
+                f"'{guessed_source}' to a known indexed source. "
+                f"Proceeding without strict inferred source filter."
+            )
+
+    strict_chroma_filter = build_chroma_filter(strict_filters)
+
+    logger.info(
+        f"[request_id={request_id}] Retrieve query='{query}' | "
+        f"action={action} | raw_filters={strict_filters} | "
+        f"target_sources={target_sources} | resolved_source={resolved_source} | "
+        f"chroma_filter={strict_chroma_filter}"
+    )
+
+    try:
+        with log_timing(logger, "vector_retrieval", request_id):
+            results = _run_search(
+                vectordb=vectordb,
+                query=query,
+                action=action,
+                chroma_filter=strict_chroma_filter,
+            )
+    except Exception as exc:
+        logger.exception(
+            f"[request_id={request_id}] Retrieval failed on strict search: {exc}"
+        )
+        return {
+            "context": "",
+            "retrieved_docs": [],
+            "retrieval_scores": [],
+            "top_score": None,
+        }
+
+    logger.info(
+        f"[request_id={request_id}] Retrieved docs count={len(results)} "
+        f"on strict search"
+    )
+
+    # fallback only if we had an inferred source that got applied and still got 0 docs
+    if not results and inferred_single_source and resolved_source:
+        relaxed_filters = deepcopy(filters)
+        relaxed_chroma_filter = build_chroma_filter(relaxed_filters)
+
+        logger.warning(
+            f"[request_id={request_id}] No documents retrieved with resolved inferred "
+            f"source filter='{resolved_source}'. Retrying without source filter. "
+            f"relaxed_filters={relaxed_filters} | "
+            f"relaxed_chroma_filter={relaxed_chroma_filter}"
+        )
+
+        try:
+            with log_timing(logger, "vector_retrieval_relaxed", request_id):
+                results = _run_search(
+                    vectordb=vectordb,
+                    query=query,
+                    action=action,
+                    chroma_filter=relaxed_chroma_filter,
+                )
+        except Exception as exc:
+            logger.exception(
+                f"[request_id={request_id}] Retrieval failed on relaxed retry: {exc}"
+            )
+            return {
+                "context": "",
+                "retrieved_docs": [],
+                "retrieval_scores": [],
+                "top_score": None,
+            }
+
+        logger.info(
+            f"[request_id={request_id}] Retrieved docs count={len(results)} "
+            f"on relaxed search"
+        )
+
+    if not results:
+        logger.warning(f"[request_id={request_id}] No documents retrieved")
+        return {
+            "context": "",
+            "retrieved_docs": [],
+            "retrieval_scores": [],
+            "top_score": None,
+        }
+
+    return _format_results(results)

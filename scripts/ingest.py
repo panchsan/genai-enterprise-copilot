@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -8,7 +9,39 @@ from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoa
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import settings
+from app.services.metadata_utils import build_source_aliases, normalize_text
 from app.services.vectorstore import get_embeddings
+
+
+def normalize_text(value: str) -> str:
+    if not value:
+        return ""
+
+    value = value.strip().lower()
+    value = re.sub(r"\.[a-z0-9]+$", "", value)  # remove extension
+    value = re.sub(r"[^a-z0-9]+", "_", value)
+    value = re.sub(r"_+", "_", value).strip("_")
+    return value
+
+
+def build_source_aliases(source: str, title: str | None = None) -> list[str]:
+    aliases = set()
+
+    if source:
+        aliases.add(source.strip())
+        aliases.add(normalize_text(source))
+
+    if title:
+        aliases.add(title.strip())
+        aliases.add(normalize_text(title))
+
+    return sorted(a for a in aliases if a)
+
+
+def build_document_title(filename: str) -> str:
+    stem = Path(filename).stem
+    cleaned = stem.replace("_", " ").replace("-", " ").strip()
+    return " ".join(word.capitalize() for word in cleaned.split())
 
 
 def get_doc_type(filename: str) -> str:
@@ -44,11 +77,18 @@ def get_department(filename: str) -> str:
 
 
 def build_clean_metadata(filename: str, original_metadata: dict) -> dict:
+    document_title = build_document_title(filename)
+    source_aliases = build_source_aliases(filename, document_title)
+
     clean_metadata = {
         "source": filename,
+        "source_normalized": normalize_text(filename),
         "document_id": filename,
         "doc_type": get_doc_type(filename),
         "department": get_department(filename),
+        "document_title": document_title,
+        "document_title_normalized": normalize_text(document_title),
+        "source_aliases": "|".join(source_aliases),
     }
 
     if "page" in original_metadata:
