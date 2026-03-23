@@ -52,7 +52,7 @@ def init_state():
         }
 
     if "show_debug" not in st.session_state:
-        st.session_state.show_debug = False
+        st.session_state.show_debug = True
 
     if "chat_search" not in st.session_state:
         st.session_state.chat_search = ""
@@ -63,6 +63,9 @@ def normalize_history_item(item: dict) -> dict:
         "role": item.get("role", "assistant"),
         "content": item.get("content", ""),
         "debug": None,
+        "sources": [],
+        "grounding": None,
+        "retrieval_summary": None,
     }
 
 
@@ -210,6 +213,97 @@ def render_sidebar_sessions(client: RAGApiClient):
                 st.caption(subtitle)
 
 
+def build_grounding_payload(result: dict) -> dict:
+    retrieval_decision = result.get("retrieval_decision")
+    sources = result.get("retrieved_sources") or []
+    scores = result.get("retrieval_scores") or []
+    top_score = result.get("top_score")
+
+    if retrieval_decision == "grounded":
+        return {
+            "label": "Grounded",
+            "icon": "🟢",
+            "help": "Answer is based on retrieved source content.",
+        }
+
+    if sources:
+        return {
+            "label": "Partially grounded",
+            "icon": "🟡",
+            "help": "Some source evidence was retrieved, but grounding was not confirmed strongly.",
+        }
+
+    return {
+        "label": "No source match",
+        "icon": "🔴",
+        "help": "No strong source-backed retrieval was found for this answer.",
+    }
+
+
+def build_retrieval_summary(result: dict) -> str:
+    sources = result.get("retrieved_sources") or []
+    unique_sources = list(dict.fromkeys([s for s in sources if s]))
+    chunk_count = len(sources)
+    top_score = result.get("top_score")
+
+    if unique_sources and top_score is not None:
+        return f"Based on {chunk_count} retrieved chunks from {len(unique_sources)} source(s). Best score: {top_score:.3f}"
+
+    if unique_sources:
+        return f"Based on {chunk_count} retrieved chunks from {len(unique_sources)} source(s)."
+
+    return "No retrieved source evidence was attached to this answer."
+
+
+def build_source_cards(result: dict) -> list[dict]:
+    sources = result.get("retrieved_sources") or []
+    scores = result.get("retrieval_scores") or []
+
+    cards = []
+    for idx, source in enumerate(sources):
+        score = scores[idx] if idx < len(scores) else None
+        cards.append({
+            "source": source or "Unknown source",
+            "score": score,
+        })
+
+    return cards
+
+
+def render_grounding_block(grounding: dict | None, retrieval_summary: str | None):
+    if not grounding:
+        return
+
+    st.info(f"{grounding['icon']} **{grounding['label']}** — {grounding['help']}")
+    if retrieval_summary:
+        st.caption(retrieval_summary)
+
+
+def render_sources_block(source_cards: list[dict]):
+    if not source_cards:
+        return
+
+    st.markdown("**Sources**")
+    best_scores = {}
+
+    for card in source_cards:
+        source = card["source"]
+        score = card["score"]
+
+        if source not in best_scores:
+            best_scores[source] = score
+        else:
+            existing = best_scores[source]
+            if score is not None and (existing is None or score < existing):
+                best_scores[source] = score
+
+    for source, score in best_scores.items():
+        if score is not None:
+            st.markdown(f"- 📄 `{source}` · best score `{score:.3f}`")
+        else:
+            st.markdown(f"- 📄 `{source}`")
+
+
 init_state()
 
 st.markdown(
@@ -328,7 +422,7 @@ with st.sidebar:
         st.session_state.filters["source"] = st.text_input(
             "Source",
             value=st.session_state.filters["source"],
-            placeholder="e.g. hybrid_work_policy.txt",
+            placeholder="e.g. hr_policy.txt",
         )
 
         st.session_state.show_debug = st.toggle(
@@ -356,7 +450,7 @@ if not st.session_state.messages:
             <div class="small-note">
                 Try asking things like:
                 <br>• Summarize the hybrid work policy
-                <br>• Compare the leave policy and travel policy
+                <br>• Compare the leave policy and finance policy
                 <br>• Tell me about the AI Contract Analyzer product
             </div>
         </div>
@@ -370,13 +464,16 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-        if (
-            message["role"] == "assistant"
-            and message.get("debug")
-            and st.session_state.show_debug
-        ):
-            with st.expander("Debug details"):
-                st.json(message["debug"])
+        if message["role"] == "assistant":
+            render_grounding_block(
+                message.get("grounding"),
+                message.get("retrieval_summary"),
+            )
+            render_sources_block(message.get("sources", []))
+
+            if message.get("debug") and st.session_state.show_debug:
+                with st.expander("Debug details"):
+                    st.json(message["debug"])
 
 user_prompt = st.chat_input("Ask a question about your documents...")
 
@@ -415,7 +512,13 @@ if user_prompt:
                     "session_context": result.get("session_context"),
                 }
 
+                grounding_payload = build_grounding_payload(result)
+                retrieval_summary = build_retrieval_summary(result)
+                source_cards = build_source_cards(result)
+
                 st.markdown(answer)
+                render_grounding_block(grounding_payload, retrieval_summary)
+                render_sources_block(source_cards)
 
                 if st.session_state.show_debug:
                     with st.expander("Debug details"):
@@ -425,6 +528,9 @@ if user_prompt:
                     "role": "assistant",
                     "content": answer,
                     "debug": debug_payload,
+                    "sources": source_cards,
+                    "grounding": grounding_payload,
+                    "retrieval_summary": retrieval_summary,
                 })
 
                 try:
@@ -442,6 +548,13 @@ if user_prompt:
                     "role": "assistant",
                     "content": error_text,
                     "debug": None,
+                    "sources": [],
+                    "grounding": {
+                        "label": "No source match",
+                        "icon": "🔴",
+                        "help": "Backend connection failed, so no source-backed answer could be produced.",
+                    },
+                    "retrieval_summary": None,
                 })
 
             except Exception as exc:
@@ -451,4 +564,11 @@ if user_prompt:
                     "role": "assistant",
                     "content": error_text,
                     "debug": None,
+                    "sources": [],
+                    "grounding": {
+                        "label": "No source match",
+                        "icon": "🔴",
+                        "help": "An internal error occurred before source-backed output could be shown.",
+                    },
+                    "retrieval_summary": None,
                 })

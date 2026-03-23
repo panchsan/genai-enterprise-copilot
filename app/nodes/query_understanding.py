@@ -117,8 +117,12 @@ def analyze_query(state: AgentState):
     route = parsed.get("route", "direct")
     action = parsed.get("action", "qa")
     retrieval_query = parsed.get("retrieval_query", query)
+    
     filters = parsed.get("filters", {}) or {}
+    filters = {k: v for k, v in filters.items() if v not in (None, "", [])}
+
     target_sources = parsed.get("target_sources", []) or []
+    target_sources = [s for s in target_sources if s]
 
     if route not in {"retrieve", "direct", "fallback"}:
         route = "direct"

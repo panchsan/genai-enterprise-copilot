@@ -14,6 +14,18 @@ STOP_WORDS = {
     "more", "please", "terms"
 }
 
+GENERIC_QUERY_TERMS = {
+    "policy",
+    "policies",
+    "document",
+    "documents",
+    "details",
+    "guidelines",
+    "rules",
+    "information",
+}
+MIN_MEANINGFUL_OVERLAP = 1
+
 
 def tokenize(text: str) -> set[str]:
     words = re.findall(r"\b[a-zA-Z0-9]+\b", text.lower())
@@ -22,18 +34,10 @@ def tokenize(text: str) -> set[str]:
 
 def validate_retrieval(state: AgentState):
     request_id = state.get("request_id", "-")
-    query = (
-        state.get("rewritten_query")
-        or state.get("retrieval_query")
-        or state.get("query", "")
-    )
+    query = state.get("rewritten_query") or state.get("retrieval_query") or state.get("query", "")
     context = state.get("context", "")
     top_score = state.get("top_score")
     retrieval_scores = state.get("retrieval_scores", [])
-
-    logger.info(
-        f"[request_id={request_id}] Validation query='{query}' | scores={retrieval_scores} | top_score={top_score}"
-    )
 
     if not context.strip():
         logger.warning(f"[request_id={request_id}] Empty context -> ungrounded")
@@ -43,21 +47,31 @@ def validate_retrieval(state: AgentState):
     context_terms = tokenize(context)
 
     overlap = query_terms.intersection(context_terms)
-    overlap_score = len(overlap) / max(len(query_terms), 1)
+    meaningful_overlap = {term for term in overlap if term not in GENERIC_QUERY_TERMS}
+    overlap_score = len(meaningful_overlap) / max(len(query_terms), 1)
 
     strong_vector_match = (
-        top_score is not None and top_score <= settings.RETRIEVAL_SCORE_THRESHOLD
+        top_score is not None
+        and top_score <= settings.RETRIEVAL_SCORE_THRESHOLD
     )
-    strong_overlap = overlap_score >= settings.RETRIEVAL_OVERLAP_THRESHOLD
+    strong_overlap = (
+        len(meaningful_overlap) >= MIN_MEANINGFUL_OVERLAP
+        and overlap_score >= settings.RETRIEVAL_OVERLAP_THRESHOLD
+    )
 
     logger.info(
-        f"[request_id={request_id}] overlap_terms={overlap} | overlap_score={round(overlap_score, 2)} | "
-        f"strong_vector_match={strong_vector_match} | strong_overlap={strong_overlap}"
+        f"[request_id={request_id}] Validation query='{query}' | "
+        f"scores={retrieval_scores} | top_score={top_score}"
+    )
+    logger.info(
+        f"[request_id={request_id}] overlap_terms={overlap} | "
+        f"meaningful_overlap={meaningful_overlap} | "
+        f"overlap_score={overlap_score:.2f} | "
+        f"strong_vector_match={strong_vector_match} | "
+        f"strong_overlap={strong_overlap}"
     )
 
     if strong_vector_match and strong_overlap:
-        decision = "grounded"
-    elif strong_vector_match and overlap_score >= 0.15:
         decision = "grounded"
     else:
         decision = "ungrounded"
