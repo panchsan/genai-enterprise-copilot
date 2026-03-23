@@ -1,6 +1,5 @@
 import uuid
 from typing import Any, Dict, Optional
-
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -12,6 +11,10 @@ from app.services.db import (
     get_chat_history,
     get_session_context,
     update_session_context,
+    get_all_sessions,
+    get_session_title,
+    update_session_title,
+    delete_session
 )
 from app.services.logging_utils import get_logger, log_timing
 from app.services.vectorstore import get_vectorstore
@@ -40,11 +43,62 @@ def startup():
 
     logger.info("✅ App startup complete. Graph is ready.")
 
+def build_session_title(query: str, max_len: int = 50) -> str:
+    cleaned = " ".join(query.strip().split())
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[:max_len].rstrip() + "..."
 
 @app.get("/")
 def root():
     return {"message": "GenAI RAG system running 🚀"}
 
+@app.get("/history/{session_id}")
+def get_history(session_id: str):
+    try:
+        history = get_chat_history(session_id)
+        session_context = get_session_context(session_id)
+
+        logger.info(
+            f"[history] Loaded session_id={session_id} | "
+            f"history_length={len(history)} | session_context={session_context}"
+        )
+
+        return {
+            "session_id": session_id,
+            "history": history,
+            "history_length": len(history),
+            "session_context": session_context,
+        }
+
+    except Exception as exc:
+        logger.exception(f"[history] Failed to load history for session_id={session_id}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Internal error while loading history.",
+                "session_id": session_id,
+            },
+        ) from exc
+
+@app.get("/sessions")
+def list_sessions():
+    try:
+        sessions = get_all_sessions()
+
+        logger.info(f"[sessions] Loaded {len(sessions)} sessions")
+
+        return {
+            "sessions": sessions,
+            "count": len(sessions),
+        }
+
+    except Exception as exc:
+        logger.exception(f"[sessions] Failed to load sessions: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Internal error while loading sessions."},
+        ) from exc   
 
 @app.post("/chat")
 def chat(request: ChatRequest):
@@ -62,6 +116,13 @@ def chat(request: ChatRequest):
 
     try:
         create_session(request.session_id)
+
+        existing_title = get_session_title(request.session_id)
+        if not existing_title:
+            update_session_title(
+                request.session_id,
+                build_session_title(request.query)
+            )
 
         chat_history = get_chat_history(request.session_id)
         session_context = get_session_context(request.session_id)
@@ -138,3 +199,22 @@ def chat(request: ChatRequest):
                 "request_id": request_id,
             },
         )
+    
+@app.delete("/sessions/{session_id}")
+def delete_session_api(session_id: str):
+    try:
+        delete_session(session_id)
+
+        logger.info(f"[sessions] Deleted session_id={session_id}")
+
+        return {
+            "message": "Session deleted successfully",
+            "session_id": session_id,
+        }
+
+    except Exception as exc:
+        logger.exception(f"[sessions] Failed to delete session: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to delete session"},
+        ) from exc    

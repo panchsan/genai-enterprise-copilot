@@ -47,6 +47,7 @@ def init_db():
         """)
 
         conn.commit()
+        ensure_session_title_column()
         logger.info("Database initialized")
     except Exception:
         conn.rollback()
@@ -97,6 +98,97 @@ def save_message(session_id: str, role: str, content: str):
     finally:
         conn.close()
 
+def ensure_session_title_column():
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("PRAGMA table_info(sessions)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        if "title" not in columns:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN title TEXT")
+            conn.commit()
+
+    finally:
+        conn.close()
+
+
+def update_session_title(session_id: str, title: str):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE sessions
+            SET title = ?
+            WHERE session_id = ?
+        """, (title, session_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_session_title(session_id: str) -> Optional[str]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT title
+            FROM sessions
+            WHERE session_id = ?
+        """, (session_id,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def get_all_sessions() -> List[Dict[str, Any]]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT
+            s.session_id,
+            s.title,
+            s.created_at,
+            sc.updated_at
+        FROM sessions s
+        LEFT JOIN session_context sc
+            ON s.session_id = sc.session_id
+        ORDER BY
+            COALESCE(sc.updated_at, s.created_at) DESC
+        """)
+
+        rows = cursor.fetchall()
+
+        sessions = []
+        for row in rows:
+            sessions.append({
+                "session_id": row[0],
+                "title": row[1],
+                "created_at": row[2],
+                "updated_at": row[3],
+            })
+
+        return sessions
+
+    finally:
+        conn.close()       
+
+def delete_session(session_id: str):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        cursor.execute("DELETE FROM session_context WHERE session_id = ?", (session_id,))
+        cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+
+        conn.commit()
+    finally:
+        conn.close()         
 
 def get_chat_history(session_id: str) -> List[Dict[str, str]]:
     conn = get_connection()

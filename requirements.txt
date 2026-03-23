@@ -13,3 +13,8 @@ langchain-text-splitters
 langchain-core
 langchain_openai 
 langchain-community
+PyJWT 
+cryptography 
+httpx
+streamlit>=1.33.0
+requests>=2.31.0
