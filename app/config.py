@@ -17,6 +17,8 @@ class Settings:
     RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "3"))
     RETRIEVAL_SCORE_THRESHOLD = float(os.getenv("RETRIEVAL_SCORE_THRESHOLD", "1.2"))
     RETRIEVAL_OVERLAP_THRESHOLD = float(os.getenv("RETRIEVAL_OVERLAP_THRESHOLD", "0.3"))
+    RETRIEVAL_HARD_FILTER_ENABLED = True
+    ALLOW_DIRECT_LLM_FALLBACK = False
 
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "300"))
     CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))

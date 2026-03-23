@@ -1,5 +1,6 @@
 import uuid
 from typing import Any, Dict, Optional
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -14,7 +15,7 @@ from app.services.db import (
     get_all_sessions,
     get_session_title,
     update_session_title,
-    delete_session
+    delete_session,
 )
 from app.services.logging_utils import get_logger, log_timing
 from app.services.vectorstore import get_vectorstore
@@ -43,15 +44,33 @@ def startup():
 
     logger.info("✅ App startup complete. Graph is ready.")
 
+
 def build_session_title(query: str, max_len: int = 50) -> str:
     cleaned = " ".join(query.strip().split())
     if len(cleaned) <= max_len:
         return cleaned
     return cleaned[:max_len].rstrip() + "..."
 
+
 @app.get("/")
 def root():
     return {"message": "GenAI RAG system running 🚀"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready():
+    try:
+        _ = get_all_sessions()
+        return {"status": "ready"}
+    except Exception as exc:
+        logger.exception(f"[ready] readiness check failed: {exc}")
+        raise HTTPException(status_code=503, detail={"status": "not_ready"}) from exc
+
 
 @app.get("/history/{session_id}")
 def get_history(session_id: str):
@@ -81,6 +100,7 @@ def get_history(session_id: str):
             },
         ) from exc
 
+
 @app.get("/sessions")
 def list_sessions():
     try:
@@ -98,7 +118,8 @@ def list_sessions():
         raise HTTPException(
             status_code=500,
             detail={"message": "Internal error while loading sessions."},
-        ) from exc   
+        ) from exc
+
 
 @app.post("/chat")
 def chat(request: ChatRequest):
@@ -124,7 +145,11 @@ def chat(request: ChatRequest):
                 build_session_title(request.query)
             )
 
-        chat_history = get_chat_history(request.session_id)
+        chat_history_raw = get_chat_history(request.session_id)
+        chat_history_for_graph = [
+            {"role": item.get("role"), "content": item.get("content", "")}
+            for item in chat_history_raw
+        ]
         session_context = get_session_context(request.session_id)
 
         logger.info(f"[request_id={request_id}] Loaded session context={session_context}")
@@ -134,18 +159,33 @@ def chat(request: ChatRequest):
                 "request_id": request_id,
                 "query": request.query,
                 "session_id": request.session_id,
-                "chat_history": chat_history,
+                "chat_history": chat_history_for_graph,
                 "filters": request.filters or {},
                 "session_context": session_context,
             })
 
         save_message(request.session_id, "user", request.query)
-        save_message(request.session_id, "assistant", result.get("answer", ""))
 
-        retrieved_sources = [
-            doc["metadata"].get("source")
-            for doc in result.get("retrieved_docs", [])
-        ]
+        retrieval_decision = result.get("retrieval_decision")
+        grounded = retrieval_decision == "grounded"
+
+        retrieved_sources = []
+        if grounded:
+            retrieved_sources = [
+                doc.get("metadata", {}).get("source")
+                for doc in result.get("retrieved_docs", [])
+                if doc.get("metadata", {}).get("source")
+            ]
+
+        save_message(
+            request.session_id,
+            "assistant",
+            result.get("answer", ""),
+            grounding="grounded" if grounded else "ungrounded",
+            sources=retrieved_sources,
+            retrieval_decision=retrieval_decision,
+            top_score=result.get("top_score"),
+        )
 
         active_source = retrieved_sources[0] if retrieved_sources else session_context.get("active_source")
 
@@ -165,7 +205,7 @@ def chat(request: ChatRequest):
 
         logger.info(
             f"[request_id={request_id}] Completed | route={result.get('route')} | "
-            f"retrieval_decision={result.get('retrieval_decision')} | "
+            f"retrieval_decision={retrieval_decision} | "
             f"top_score={result.get('top_score')} | retrieved_sources={retrieved_sources}"
         )
 
@@ -183,7 +223,7 @@ def chat(request: ChatRequest):
             ),
             "session_id": request.session_id,
             "history_length": len(get_chat_history(request.session_id)),
-            "retrieval_decision": result.get("retrieval_decision"),
+            "retrieval_decision": retrieval_decision,
             "retrieved_sources": retrieved_sources,
             "retrieval_scores": result.get("retrieval_scores", []),
             "top_score": result.get("top_score"),
@@ -198,8 +238,9 @@ def chat(request: ChatRequest):
                 "message": "Internal error while processing the request.",
                 "request_id": request_id,
             },
-        )
-    
+        ) from exc
+
+
 @app.delete("/sessions/{session_id}")
 def delete_session_api(session_id: str):
     try:
@@ -217,4 +258,4 @@ def delete_session_api(session_id: str):
         raise HTTPException(
             status_code=500,
             detail={"message": "Failed to delete session"},
-        ) from exc    
+        ) from exc

@@ -12,6 +12,32 @@ def direct_answer(state: AgentState):
     request_id = state.get("request_id", "-")
     chat_history = state.get("chat_history", [])
 
+    if (
+        state.get("retrieval_decision") == "ungrounded"
+        and not getattr(settings, "ALLOW_DIRECT_LLM_FALLBACK", False)
+    ):
+        logger.warning(
+            f"[request_id={request_id}] Direct-answer blocked for ungrounded retrieval"
+        )
+        query = (
+            state.get("rewritten_query")
+            or state.get("retrieval_query")
+            or state.get("query")
+            or "your request"
+        )
+        return {
+            "answer": (
+                f"I could not find a reliable answer for '{query}' in the indexed enterprise "
+                "documents. Please try rephrasing the request, specifying a document/source, "
+                "or removing restrictive filters."
+            ),
+            "retrieval_decision": "ungrounded",
+            "retrieved_docs": [],
+            "retrieved_sources": [],
+            "retrieval_scores": [],
+            "top_score": None,
+        }
+
     logger.info(f"[request_id={request_id}] Answering via direct path")
 
     messages = [
@@ -22,7 +48,13 @@ def direct_answer(state: AgentState):
     ]
 
     for msg in chat_history[-settings.MAX_CHAT_HISTORY_MESSAGES:]:
-        messages.append(msg)
+        if isinstance(msg, dict) and msg.get("role") in {"user", "assistant", "system"}:
+            messages.append(
+                {
+                    "role": msg["role"],
+                    "content": msg.get("content", ""),
+                }
+            )
 
     messages.append(
         {

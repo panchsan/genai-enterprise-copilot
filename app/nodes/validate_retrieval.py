@@ -24,6 +24,7 @@ GENERIC_QUERY_TERMS = {
     "rules",
     "information",
 }
+
 MIN_MEANINGFUL_OVERLAP = 1
 
 
@@ -41,7 +42,10 @@ def validate_retrieval(state: AgentState):
 
     if not context.strip():
         logger.warning(f"[request_id={request_id}] Empty context -> ungrounded")
-        return {"retrieval_decision": "ungrounded"}
+        return {
+            "retrieval_decision": "ungrounded",
+            "retrieved_sources": [],
+        }
 
     query_terms = tokenize(query)
     context_terms = tokenize(context)
@@ -77,4 +81,13 @@ def validate_retrieval(state: AgentState):
         decision = "ungrounded"
 
     logger.info(f"[request_id={request_id}] Retrieval decision={decision}")
-    return {"retrieval_decision": decision}
+
+    if decision != "grounded":
+        return {
+            "retrieval_decision": decision,
+            "retrieved_sources": [],
+        }
+
+    return {
+        "retrieval_decision": decision,
+    }

@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import datetime
 
@@ -14,6 +15,10 @@ st.set_page_config(
 )
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
+APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
+SHOW_DEBUG_DEFAULT = os.getenv("SHOW_DEBUG", "true").strip().lower() in {
+    "1", "true", "yes", "y", "on"
+}
 
 ACTION_OPTIONS = {
     "Auto": None,
@@ -52,10 +57,71 @@ def init_state():
         }
 
     if "show_debug" not in st.session_state:
-        st.session_state.show_debug = True
+        st.session_state.show_debug = SHOW_DEBUG_DEFAULT
 
     if "chat_search" not in st.session_state:
         st.session_state.chat_search = ""
+
+
+def build_grounding_from_history(item: dict) -> dict | None:
+    role = item.get("role")
+    if role != "assistant":
+        return None
+
+    retrieval_decision = item.get("retrieval_decision")
+    sources = item.get("sources", []) or []
+
+    if retrieval_decision == "grounded":
+        return {
+            "label": "Grounded",
+            "icon": "🟢",
+            "help": "Answer is based on retrieved source content.",
+        }
+
+    if sources:
+        return {
+            "label": "Partially grounded",
+            "icon": "🟡",
+            "help": "Some source evidence was retrieved, but grounding was not confirmed strongly.",
+        }
+
+    return {
+        "label": "No source match",
+        "icon": "🔴",
+        "help": "No strong source-backed retrieval was found for this answer.",
+    }
+
+
+def build_retrieval_summary_from_history(item: dict) -> str | None:
+    role = item.get("role")
+    if role != "assistant":
+        return None
+
+    sources = item.get("sources", []) or []
+    unique_sources = list(dict.fromkeys([s for s in sources if s]))
+    top_score = item.get("top_score")
+
+    if unique_sources and top_score is not None:
+        return (
+            f"Based on {len(sources)} retrieved chunks from "
+            f"{len(unique_sources)} source(s). Best score: {float(top_score):.3f}"
+        )
+
+    if unique_sources:
+        return (
+            f"Based on {len(sources)} retrieved chunks from "
+            f"{len(unique_sources)} source(s)."
+        )
+
+    return "No retrieved source evidence was attached to this answer."
+
+
+def build_source_cards_from_history(item: dict) -> list[dict]:
+    sources = item.get("sources", []) or []
+    if not sources:
+        return []
+
+    return [{"source": s, "score": None} for s in sources if s]
 
 
 def normalize_history_item(item: dict) -> dict:
@@ -63,9 +129,9 @@ def normalize_history_item(item: dict) -> dict:
         "role": item.get("role", "assistant"),
         "content": item.get("content", ""),
         "debug": None,
-        "sources": [],
-        "grounding": None,
-        "retrieval_summary": None,
+        "sources": build_source_cards_from_history(item),
+        "grounding": build_grounding_from_history(item),
+        "retrieval_summary": build_retrieval_summary_from_history(item),
     }
 
 
@@ -216,8 +282,6 @@ def render_sidebar_sessions(client: RAGApiClient):
 def build_grounding_payload(result: dict) -> dict:
     retrieval_decision = result.get("retrieval_decision")
     sources = result.get("retrieved_sources") or []
-    scores = result.get("retrieval_scores") or []
-    top_score = result.get("top_score")
 
     if retrieval_decision == "grounded":
         return {
@@ -247,10 +311,16 @@ def build_retrieval_summary(result: dict) -> str:
     top_score = result.get("top_score")
 
     if unique_sources and top_score is not None:
-        return f"Based on {chunk_count} retrieved chunks from {len(unique_sources)} source(s). Best score: {top_score:.3f}"
+        return (
+            f"Based on {chunk_count} retrieved chunks from "
+            f"{len(unique_sources)} source(s). Best score: {top_score:.3f}"
+        )
 
     if unique_sources:
-        return f"Based on {chunk_count} retrieved chunks from {len(unique_sources)} source(s)."
+        return (
+            f"Based on {chunk_count} retrieved chunks from "
+            f"{len(unique_sources)} source(s)."
+        )
 
     return "No retrieved source evidence was attached to this answer."
 
@@ -425,10 +495,11 @@ with st.sidebar:
             placeholder="e.g. hr_policy.txt",
         )
 
-        st.session_state.show_debug = st.toggle(
-            "Show debug details",
-            value=st.session_state.show_debug,
-        )
+        if APP_ENV != "prod":
+            st.session_state.show_debug = st.toggle(
+                "Show debug details",
+                value=st.session_state.show_debug,
+            )
 
         if st.button("Clear current window", use_container_width=True):
             clear_ui_only()
@@ -471,7 +542,7 @@ for message in st.session_state.messages:
             )
             render_sources_block(message.get("sources", []))
 
-            if message.get("debug") and st.session_state.show_debug:
+            if message.get("debug") and st.session_state.show_debug and APP_ENV != "prod":
                 with st.expander("Debug details"):
                     st.json(message["debug"])
 
@@ -520,7 +591,7 @@ if user_prompt:
                 render_grounding_block(grounding_payload, retrieval_summary)
                 render_sources_block(source_cards)
 
-                if st.session_state.show_debug:
+                if st.session_state.show_debug and APP_ENV != "prod":
                     with st.expander("Debug details"):
                         st.json(debug_payload)
 

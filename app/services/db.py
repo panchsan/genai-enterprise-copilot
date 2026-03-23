@@ -48,6 +48,7 @@ def init_db():
 
         conn.commit()
         ensure_session_title_column()
+        ensure_message_metadata_columns()
         logger.info("Database initialized")
     except Exception:
         conn.rollback()
@@ -81,15 +82,33 @@ def create_session(session_id: str):
         conn.close()
 
 
-def save_message(session_id: str, role: str, content: str):
+def save_message(
+    session_id: str,
+    role: str,
+    content: str,
+    grounding: Optional[str] = None,
+    sources: Optional[List[str]] = None,
+    retrieval_decision: Optional[str] = None,
+    top_score: Optional[float] = None,
+):
     conn = get_connection()
     try:
         cursor = conn.cursor()
 
         cursor.execute("""
-        INSERT INTO messages (session_id, role, content)
-        VALUES (?, ?, ?)
-        """, (session_id, role, content))
+        INSERT INTO messages (
+            session_id, role, content, grounding, sources, retrieval_decision, top_score
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            session_id,
+            role,
+            content,
+            grounding,
+            json.dumps(sources or []),
+            retrieval_decision,
+            top_score,
+        ))
 
         conn.commit()
     except Exception:
@@ -97,6 +116,7 @@ def save_message(session_id: str, role: str, content: str):
         raise
     finally:
         conn.close()
+
 
 def ensure_session_title_column():
     conn = get_connection()
@@ -110,6 +130,32 @@ def ensure_session_title_column():
             cursor.execute("ALTER TABLE sessions ADD COLUMN title TEXT")
             conn.commit()
 
+    finally:
+        conn.close()
+
+
+def ensure_message_metadata_columns():
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("PRAGMA table_info(messages)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        required_columns = {
+            "grounding": "TEXT",
+            "sources": "TEXT",
+            "retrieval_decision": "TEXT",
+            "top_score": "REAL",
+        }
+
+        for column_name, column_type in required_columns.items():
+            if column_name not in columns:
+                cursor.execute(
+                    f"ALTER TABLE messages ADD COLUMN {column_name} {column_type}"
+                )
+
+        conn.commit()
     finally:
         conn.close()
 
@@ -175,7 +221,8 @@ def get_all_sessions() -> List[Dict[str, Any]]:
         return sessions
 
     finally:
-        conn.close()       
+        conn.close()
+
 
 def delete_session(session_id: str):
     conn = get_connection()
@@ -188,22 +235,40 @@ def delete_session(session_id: str):
 
         conn.commit()
     finally:
-        conn.close()         
+        conn.close()
 
-def get_chat_history(session_id: str) -> List[Dict[str, str]]:
+
+def get_chat_history(session_id: str) -> List[Dict[str, Any]]:
     conn = get_connection()
     try:
         cursor = conn.cursor()
 
         cursor.execute("""
-        SELECT role, content
+        SELECT role, content, grounding, sources, retrieval_decision, top_score
         FROM messages
         WHERE session_id = ?
         ORDER BY id ASC
         """, (session_id,))
 
         rows = cursor.fetchall()
-        return [{"role": r[0], "content": r[1]} for r in rows]
+
+        history = []
+        for row in rows:
+            try:
+                parsed_sources = json.loads(row[3]) if row[3] else []
+            except json.JSONDecodeError:
+                parsed_sources = []
+
+            history.append({
+                "role": row[0],
+                "content": row[1],
+                "grounding": row[2],
+                "sources": parsed_sources,
+                "retrieval_decision": row[4],
+                "top_score": row[5],
+            })
+
+        return history
     finally:
         conn.close()
 

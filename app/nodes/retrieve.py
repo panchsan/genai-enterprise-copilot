@@ -32,6 +32,27 @@ def _run_search(vectordb, query: str, action: str, chroma_filter):
     )
 
 
+def _apply_score_threshold(results):
+    if not getattr(settings, "RETRIEVAL_HARD_FILTER_ENABLED", True):
+        return results
+
+    threshold = getattr(settings, "RETRIEVAL_SCORE_THRESHOLD", None)
+    if threshold is None:
+        return results
+
+    filtered = []
+    for doc, score in results:
+        if score is None:
+            continue
+
+        score = float(score)
+        # Chroma score here behaves like distance: lower is better
+        if score <= threshold:
+            filtered.append((doc, score))
+
+    return filtered
+
+
 def _format_results(results):
     if not results:
         return {
@@ -54,13 +75,15 @@ def _format_results(results):
             "page_content": doc.page_content,
             "metadata": metadata,
         })
-        scores.append(float(score))
+        scores.append(float(score) if score is not None else None)
+
+    numeric_scores = [s for s in scores if s is not None]
 
     return {
         "context": "\n\n".join(context_parts),
         "retrieved_docs": retrieved_docs,
-        "retrieval_scores": scores,
-        "top_score": min(scores) if scores else None,
+        "retrieval_scores": numeric_scores,
+        "top_score": min(numeric_scores) if numeric_scores else None,
     }
 
 
@@ -74,7 +97,7 @@ def retrieve(state: AgentState, vectordb):
     inferred_single_source = (
         action in {"summarize_document", "answer_by_source"}
         and len(target_sources) == 1
-        and "source" not in filters  # do not override explicit user filter
+        and "source" not in filters
     )
 
     strict_filters = deepcopy(filters)
@@ -109,7 +132,7 @@ def retrieve(state: AgentState, vectordb):
 
     try:
         with log_timing(logger, "vector_retrieval", request_id):
-            results = _run_search(
+            raw_results = _run_search(
                 vectordb=vectordb,
                 query=query,
                 action=action,
@@ -126,12 +149,14 @@ def retrieve(state: AgentState, vectordb):
             "top_score": None,
         }
 
+    results = _apply_score_threshold(raw_results)
+
     logger.info(
-        f"[request_id={request_id}] Retrieved docs count={len(results)} "
-        f"on strict search"
+        f"[request_id={request_id}] Strict search raw_count={len(raw_results)} | "
+        f"filtered_count={len(results)} | "
+        f"threshold={getattr(settings, 'RETRIEVAL_SCORE_THRESHOLD', None)}"
     )
 
-    # fallback only if we had an inferred source that got applied and still got 0 docs
     if not results and inferred_single_source and resolved_source:
         relaxed_filters = deepcopy(filters)
         relaxed_chroma_filter = build_chroma_filter(relaxed_filters)
@@ -145,7 +170,7 @@ def retrieve(state: AgentState, vectordb):
 
         try:
             with log_timing(logger, "vector_retrieval_relaxed", request_id):
-                results = _run_search(
+                raw_results = _run_search(
                     vectordb=vectordb,
                     query=query,
                     action=action,
@@ -162,13 +187,16 @@ def retrieve(state: AgentState, vectordb):
                 "top_score": None,
             }
 
+        results = _apply_score_threshold(raw_results)
+
         logger.info(
-            f"[request_id={request_id}] Retrieved docs count={len(results)} "
-            f"on relaxed search"
+            f"[request_id={request_id}] Relaxed search raw_count={len(raw_results)} | "
+            f"filtered_count={len(results)} | "
+            f"threshold={getattr(settings, 'RETRIEVAL_SCORE_THRESHOLD', None)}"
         )
 
     if not results:
-        logger.warning(f"[request_id={request_id}] No documents retrieved")
+        logger.warning(f"[request_id={request_id}] No documents retrieved after thresholding")
         return {
             "context": "",
             "retrieved_docs": [],
