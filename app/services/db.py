@@ -1,3 +1,4 @@
+import os
 import json
 import sqlite3
 from typing import List, Dict, Any, Optional
@@ -6,7 +7,8 @@ from app.services.logging_utils import get_logger
 
 logger = get_logger("app.db")
 
-DB_PATH = "chat_memory.db"
+# DB_PATH = "chat_memory.db"
+DB_PATH = os.getenv("DB_PATH", "chat_memory.db")
 
 
 def get_connection():

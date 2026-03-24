@@ -10,7 +10,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import settings
 from app.services.metadata_utils import build_source_aliases, normalize_text
-from app.services.vectorstore import get_embeddings
+from app.services.llm import get_embeddings
 
 
 def normalize_text(value: str) -> str:

@@ -1,31 +1,15 @@
 import os
 
-from azure.identity import AzureCliCredential, get_bearer_token_provider
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import TextLoader
-from langchain_openai import AzureOpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from app.services.llm import get_embeddings
 
 load_dotenv()
 
 PERSIST_DIR = "./chroma_db"
-
-
-def get_embeddings() -> AzureOpenAIEmbeddings:
-    print("🔐 Initializing embeddings with Azure AD token...")
-
-    token_provider = get_bearer_token_provider(
-        AzureCliCredential(),
-        "https://cognitiveservices.azure.com/.default",
-    )
-
-    return AzureOpenAIEmbeddings(
-        azure_deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
-        api_version=os.getenv("AZURE_EMBEDDING_API_VERSION"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        azure_ad_token_provider=token_provider,
-    )
 
 
 def init_vector_db() -> None:

@@ -1,0 +1,71 @@
+version: "3.9"
+
+services:
+  ingest:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: enterprise-copilot-ingest
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      SHOW_DEBUG: ${SHOW_DEBUG:-true}
+      DB_PATH: /app/storage/chat_memory.db
+      PERSIST_DIR: /app/chroma_db
+      DATA_DIR: /app/data
+    volumes:
+      - chroma_data:/app/chroma_db
+      - backend_storage:/app/storage
+      - ./data:/app/data
+    command: ["python", "-m", "scripts.ingest", "--mode", "full"]
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: enterprise-copilot-backend
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      SHOW_DEBUG: ${SHOW_DEBUG:-true}
+      DB_PATH: /app/storage/chat_memory.db
+      PERSIST_DIR: /app/chroma_db
+      DATA_DIR: /app/data
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/app/chroma_db
+      - backend_storage:/app/storage
+      - ./data:/app/data
+    depends_on:
+      ingest:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: enterprise-copilot-ui
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      SHOW_DEBUG: ${SHOW_DEBUG:-true}
+      API_BASE_URL: http://backend:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  chroma_data:
+  backend_storage:
