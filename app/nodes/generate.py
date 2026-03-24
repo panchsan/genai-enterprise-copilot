@@ -68,7 +68,13 @@ def generate(state: AgentState):
     ]
 
     for msg in chat_history[-settings.MAX_CHAT_HISTORY_MESSAGES:]:
-        messages.append(msg)
+        if isinstance(msg, dict) and msg.get("role") in {"user", "assistant", "system"}:
+            messages.append(
+                {
+                    "role": msg["role"],
+                    "content": msg.get("content", ""),
+                }
+            )
 
     messages.append(
         {
@@ -96,4 +102,4 @@ def generate(state: AgentState):
         f"action={action} | answer_preview={answer[:120]!r}"
     )
 
-    return {"answer": answer}
+    return {"answer": answer, "retrieval_decision": "grounded"}

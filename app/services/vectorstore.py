@@ -5,7 +5,6 @@ from langchain_chroma import Chroma
 from app.config import settings
 from app.services.llm import get_embeddings
 
-
 _vectorstore = None
 
 
@@ -23,10 +22,6 @@ def get_vectorstore() -> Chroma:
 
 
 def get_known_sources(vectordb) -> List[str]:
-    """
-    Extract known source names from the underlying Chroma collection metadata.
-    Works best when metadata contains 'source'.
-    """
     try:
         collection = vectordb._collection
         raw = collection.get(include=["metadatas"])

@@ -21,7 +21,7 @@ def _log_auth_env():
 
 
 def get_token_provider():
-    _log_auth_env()
+    # _log_auth_env()
 
     credential = DefaultAzureCredential(
         exclude_interactive_browser_credential=True,

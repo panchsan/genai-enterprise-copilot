@@ -46,35 +46,44 @@ def _apply_score_threshold(results):
             continue
 
         score = float(score)
-        # Chroma score here behaves like distance: lower is better
+        # Chroma distance-like score: lower is better
         if score <= threshold:
             filtered.append((doc, score))
 
     return filtered
 
 
-def _format_results(results):
+def _format_results(results, retrieval_status: str = "found"):
     if not results:
         return {
             "context": "",
             "retrieved_docs": [],
+            "retrieved_sources": [],
             "retrieval_scores": [],
             "top_score": None,
+            "retrieval_status": retrieval_status,
         }
 
     context_parts = []
     retrieved_docs = []
+    sources = []
     scores = []
 
     for doc, score in results:
         metadata = getattr(doc, "metadata", {}) or {}
+        source = metadata.get("source")
+
         context_parts.append(
-            f"[SOURCE: {metadata.get('source', 'unknown')}]\n{doc.page_content}"
+            f"[SOURCE: {source or 'unknown'}]\n{doc.page_content}"
         )
         retrieved_docs.append({
             "page_content": doc.page_content,
             "metadata": metadata,
         })
+
+        if source:
+            sources.append(source)
+
         scores.append(float(score) if score is not None else None)
 
     numeric_scores = [s for s in scores if s is not None]
@@ -82,8 +91,10 @@ def _format_results(results):
     return {
         "context": "\n\n".join(context_parts),
         "retrieved_docs": retrieved_docs,
+        "retrieved_sources": sources,
         "retrieval_scores": numeric_scores,
         "top_score": min(numeric_scores) if numeric_scores else None,
+        "retrieval_status": retrieval_status,
     }
 
 
@@ -114,12 +125,6 @@ def retrieve(state: AgentState, vectordb):
                 f"[request_id={request_id}] Resolved inferred target source "
                 f"'{guessed_source}' -> '{resolved_source}'"
             )
-        else:
-            logger.warning(
-                f"[request_id={request_id}] Could not resolve inferred target source "
-                f"'{guessed_source}' to a known indexed source. "
-                f"Proceeding without strict inferred source filter."
-            )
 
     strict_chroma_filter = build_chroma_filter(strict_filters)
 
@@ -142,12 +147,7 @@ def retrieve(state: AgentState, vectordb):
         logger.exception(
             f"[request_id={request_id}] Retrieval failed on strict search: {exc}"
         )
-        return {
-            "context": "",
-            "retrieved_docs": [],
-            "retrieval_scores": [],
-            "top_score": None,
-        }
+        return _format_results([], retrieval_status="no_docs")
 
     results = _apply_score_threshold(raw_results)
 
@@ -157,51 +157,37 @@ def retrieve(state: AgentState, vectordb):
         f"threshold={getattr(settings, 'RETRIEVAL_SCORE_THRESHOLD', None)}"
     )
 
-    if not results and inferred_single_source and resolved_source:
-        relaxed_filters = deepcopy(filters)
-        relaxed_chroma_filter = build_chroma_filter(relaxed_filters)
-
+    # Retry without filters only if strict filters were used and nothing survived.
+    if not results and strict_chroma_filter is not None:
         logger.warning(
-            f"[request_id={request_id}] No documents retrieved with resolved inferred "
-            f"source filter='{resolved_source}'. Retrying without source filter. "
-            f"relaxed_filters={relaxed_filters} | "
-            f"relaxed_chroma_filter={relaxed_chroma_filter}"
+            f"[request_id={request_id}] No documents retrieved with filters. "
+            f"Retrying without filters."
         )
 
         try:
-            with log_timing(logger, "vector_retrieval_relaxed", request_id):
+            with log_timing(logger, "vector_retrieval_no_filters", request_id):
                 raw_results = _run_search(
                     vectordb=vectordb,
                     query=query,
                     action=action,
-                    chroma_filter=relaxed_chroma_filter,
+                    chroma_filter=None,
                 )
         except Exception as exc:
             logger.exception(
-                f"[request_id={request_id}] Retrieval failed on relaxed retry: {exc}"
+                f"[request_id={request_id}] Retrieval failed on no-filter retry: {exc}"
             )
-            return {
-                "context": "",
-                "retrieved_docs": [],
-                "retrieval_scores": [],
-                "top_score": None,
-            }
+            return _format_results([], retrieval_status="no_docs")
 
         results = _apply_score_threshold(raw_results)
 
         logger.info(
-            f"[request_id={request_id}] Relaxed search raw_count={len(raw_results)} | "
+            f"[request_id={request_id}] No-filter search raw_count={len(raw_results)} | "
             f"filtered_count={len(results)} | "
             f"threshold={getattr(settings, 'RETRIEVAL_SCORE_THRESHOLD', None)}"
         )
 
     if not results:
         logger.warning(f"[request_id={request_id}] No documents retrieved after thresholding")
-        return {
-            "context": "",
-            "retrieved_docs": [],
-            "retrieval_scores": [],
-            "top_score": None,
-        }
+        return _format_results([], retrieval_status="no_docs")
 
-    return _format_results(results)
+    return _format_results(results, retrieval_status="found")

@@ -1,61 +1,52 @@
-from app.config import settings
-from app.prompts import REWRITE_QUERY_PROMPT
-from app.services.llm import get_azure_openai_client, safe_chat_completion
-from app.services.logging_utils import get_logger, log_timing
+from app.services.logging_utils import get_logger
 from app.state import AgentState
 
-client = get_azure_openai_client()
 logger = get_logger("app.rewrite_query")
+
+
+FOLLOW_UP_HINTS = [
+    "what about",
+    "explain that",
+    "explain it",
+    "summarize that",
+    "tell me more",
+    "what does it say",
+    "and finance",
+    "and hr",
+    "what about this",
+    "what about that",
+]
+
+
+def _is_follow_up(query: str) -> bool:
+    q = (query or "").lower().strip()
+
+    if any(hint in q for hint in FOLLOW_UP_HINTS):
+        return True
+
+    if len(q.split()) <= 4 and any(word in q for word in ["that", "this", "it", "those", "them"]):
+        return True
+
+    return False
 
 
 def rewrite_query(state: AgentState):
     request_id = state.get("request_id", "-")
-    original_query = state.get("retrieval_query") or state["query"]
-    chat_history = state.get("chat_history", [])
+    query = state.get("retrieval_query") or state.get("query", "")
+    action = state.get("action", "qa")
 
-    logger.info(f"[request_id={request_id}] Original retrieval query='{original_query}'")
+    logger.info(f"[request_id={request_id}] Original retrieval query='{query}'")
 
-    messages = [
-        {"role": "system", "content": REWRITE_QUERY_PROMPT},
-    ]
-
-    if chat_history:
-        history_text = "\n".join(
-            f"{msg['role'].capitalize()}: {msg['content']}"
-            for msg in chat_history[-settings.MAX_CHAT_HISTORY_MESSAGES:]
+    # Keep standalone questions unchanged.
+    # Only rewrite if it looks like a context-dependent follow-up.
+    if action == "qa" and not _is_follow_up(query):
+        logger.info(
+            f"[request_id={request_id}] Standalone QA detected -> skipping rewrite"
         )
-        messages.append(
-            {
-                "role": "system",
-                "content": f"Recent conversation:\n{history_text}",
-            }
-        )
+        return {"rewritten_query": query}
 
-    messages.append(
-        {
-            "role": "user",
-            "content": original_query,
-        }
+    # For now, keep non-QA actions also simple and unchanged.
+    logger.info(
+        f"[request_id={request_id}] Rewrite not needed -> using original query"
     )
-
-    try:
-        with log_timing(logger, "rewrite_query_llm", request_id):
-            response = safe_chat_completion(
-                client,
-                model=settings.AZURE_OPENAI_CHAT_DEPLOYMENT,
-                messages=messages,
-                temperature=settings.LLM_TEMPERATURE_DETERMINISTIC,
-            )
-
-        rewritten_query = (response.choices[0].message.content or original_query).strip()
-    except Exception as exc:
-        logger.error(f"[request_id={request_id}] Rewrite query failed: {exc}")
-        rewritten_query = original_query
-
-    if not rewritten_query:
-        rewritten_query = original_query
-        logger.warning(f"[request_id={request_id}] Empty rewritten query; using original query")
-
-    logger.info(f"[request_id={request_id}] Rewritten query='{rewritten_query}'")
-
-    return {"rewritten_query": rewritten_query}
+    return {"rewritten_query": query}

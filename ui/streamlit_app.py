@@ -14,8 +14,8 @@ st.set_page_config(
     layout="wide",
 )
 
-#DEFAULT_API_URL = "http://127.0.0.1:8000"
-DEFAULT_API_URL = os.getenv("API_BASE_URL", "http://backend:8000")
+DEFAULT_API_URL = "http://127.0.0.1:8000"
+# DEFAULT_API_URL = os.getenv("API_BASE_URL", "http://backend:8000")
 APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
 SHOW_DEBUG_DEFAULT = os.getenv("SHOW_DEBUG", "true").strip().lower() in {
     "1", "true", "yes", "y", "on"
