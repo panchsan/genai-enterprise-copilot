@@ -1,5 +1,6 @@
 import re
 
+from app.services.action_utils import VALID_ACTIONS, normalize_action
 from app.services.logging_utils import get_logger
 from app.state import AgentState
 
@@ -33,17 +34,26 @@ def analyze_query(state: AgentState):
 
     logger.info(f"[request_id={request_id}] Incoming query='{query}'")
 
-    # Current phase: always try internal retrieval first.
     route = "retrieve"
-    action = _detect_action(query)
+
+    explicit_action = state.get("action")
+    detected_action = _detect_action(query)
+
+    if explicit_action in VALID_ACTIONS:
+        action = explicit_action
+        action_source = "explicit"
+    else:
+        action = normalize_action(detected_action)
+        action_source = "detected"
+
     target_sources = _extract_target_sources(query)
 
-    # Important: use only user/UI-provided filters for now.
     filters = state.get("filters", {}) or {}
 
     logger.info(
-        f"[request_id={request_id}] route={route} | action={action} | "
-        f"retrieval_query='{query}' | filters={filters} | target_sources={target_sources}"
+        f"[request_id={request_id}] route={route} | action={action} "
+        f"(source={action_source}) | retrieval_query='{query}' | "
+        f"filters={filters} | target_sources={target_sources}"
     )
 
     return {

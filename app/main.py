@@ -18,10 +18,10 @@ from app.services.db import (
     delete_session,
 )
 from app.services.logging_utils import get_logger, log_timing
-from app.services.vectorstore import get_vectorstore
 
-app = FastAPI()
 logger = get_logger("app.main")
+
+app = FastAPI(title="Enterprise RAG Copilot")
 
 graph = None
 
@@ -30,31 +30,28 @@ class ChatRequest(BaseModel):
     query: str
     session_id: str = "default"
     filters: Optional[Dict[str, Any]] = None
+    action: Optional[str] = None
 
 
-@app.on_event("startup")
-def startup():
-    global graph
-
-    logger.info("🚀 App starting...")
-
-    init_db()
-    vectordb = get_vectorstore()
-    graph = build_graph(vectordb)
-
-    logger.info("✅ App startup complete. Graph is ready.")
-
-
-def build_session_title(query: str, max_len: int = 50) -> str:
-    cleaned = " ".join(query.strip().split())
+def build_session_title(query: str, max_len: int = 60) -> str:
+    cleaned = " ".join((query or "").strip().split())
+    if not cleaned:
+        return "New Chat"
     if len(cleaned) <= max_len:
         return cleaned
     return cleaned[:max_len].rstrip() + "..."
 
 
-@app.get("/")
-def root():
-    return {"message": "GenAI RAG system running 🚀"}
+@app.on_event("startup")
+def startup_event():
+    global graph
+    logger.info("Initializing database...")
+    init_db()
+
+    logger.info("Building LangGraph workflow...")
+    graph = build_graph()
+
+    logger.info("Application startup complete.")
 
 
 @app.get("/health")
@@ -64,61 +61,62 @@ def health():
 
 @app.get("/ready")
 def ready():
+    global graph
     try:
+        if graph is None:
+            raise RuntimeError("Graph not initialized")
+
         _ = get_all_sessions()
-        return {"status": "ready"}
-    except Exception as exc:
-        logger.exception(f"[ready] readiness check failed: {exc}")
-        raise HTTPException(status_code=503, detail={"status": "not_ready"}) from exc
-
-
-@app.get("/history/{session_id}")
-def get_history(session_id: str):
-    try:
-        history = get_chat_history(session_id)
-        session_context = get_session_context(session_id)
-
-        logger.info(
-            f"[history] Loaded session_id={session_id} | "
-            f"history_length={len(history)} | session_context={session_context}"
-        )
 
         return {
-            "session_id": session_id,
-            "history": history,
-            "history_length": len(history),
-            "session_context": session_context,
+            "status": "ready",
+            "graph_initialized": True,
+            "db_accessible": True,
         }
-
     except Exception as exc:
-        logger.exception(f"[history] Failed to load history for session_id={session_id}: {exc}")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "message": "Internal error while loading history.",
-                "session_id": session_id,
-            },
-        ) from exc
+        logger.exception(f"Readiness check failed: {exc}")
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+
+@app.get("/")
+def root():
+    return {
+        "message": "Enterprise RAG Copilot API is running",
+        "health": "/health",
+        "ready": "/ready",
+        "chat": "/chat",
+        "sessions": "/sessions",
+    }
 
 
 @app.get("/sessions")
 def list_sessions():
     try:
         sessions = get_all_sessions()
-
-        logger.info(f"[sessions] Loaded {len(sessions)} sessions")
-
         return {
             "sessions": sessions,
             "count": len(sessions),
         }
-
     except Exception as exc:
-        logger.exception(f"[sessions] Failed to load sessions: {exc}")
-        raise HTTPException(
-            status_code=500,
-            detail={"message": "Internal error while loading sessions."},
-        ) from exc
+        logger.exception(f"Failed to list sessions: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to list sessions")
+
+
+@app.get("/history/{session_id}")
+def history(session_id: str):
+    try:
+        history_items = get_chat_history(session_id)
+        session_context = get_session_context(session_id)
+
+        return {
+            "session_id": session_id,
+            "history": history_items,
+            "history_length": len(history_items),
+            "session_context": session_context,
+        }
+    except Exception as exc:
+        logger.exception(f"Failed to fetch history for session_id={session_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to fetch history")
 
 
 @app.post("/chat")
@@ -126,33 +124,29 @@ def chat(request: ChatRequest):
     global graph
 
     if graph is None:
-        raise HTTPException(status_code=500, detail="Graph is not initialized")
+        raise HTTPException(status_code=503, detail="Graph not initialized")
 
-    request_id = str(uuid.uuid4())[:8]
+    request_id = str(uuid.uuid4())
 
     logger.info(
         f"[request_id={request_id}] Incoming query='{request.query}' | "
-        f"session_id={request.session_id} | request_filters={request.filters or {}}"
+        f"session_id={request.session_id} | request_action={request.action} | "
+        f"request_filters={request.filters or {}}"
     )
 
     try:
         create_session(request.session_id)
 
-        existing_title = get_session_title(request.session_id)
-        if not existing_title:
-            update_session_title(
-                request.session_id,
-                build_session_title(request.query)
-            )
+        if not get_session_title(request.session_id):
+            update_session_title(request.session_id, build_session_title(request.query))
 
-        chat_history_raw = get_chat_history(request.session_id)
-        chat_history_for_graph = [
-            {"role": item.get("role"), "content": item.get("content", "")}
-            for item in chat_history_raw
-        ]
+        chat_history = get_chat_history(request.session_id)
         session_context = get_session_context(request.session_id)
 
-        logger.info(f"[request_id={request_id}] Loaded session context={session_context}")
+        chat_history_for_graph = [
+            {"role": item["role"], "content": item["content"]}
+            for item in chat_history
+        ]
 
         with log_timing(logger, "graph_invoke", request_id):
             result = graph.invoke({
@@ -161,101 +155,98 @@ def chat(request: ChatRequest):
                 "session_id": request.session_id,
                 "chat_history": chat_history_for_graph,
                 "filters": request.filters or {},
+                "action": request.action,
                 "session_context": session_context,
             })
 
-        save_message(request.session_id, "user", request.query)
-
+        answer = result.get("answer", "I’m sorry, I couldn’t generate a response.")
+        applied_filters = result.get("filters", {}) or {}
+        action = result.get("action")
+        retrieval_query = result.get("retrieval_query")
+        rewritten_query = result.get("rewritten_query")
+        target_sources = result.get("target_sources", [])
         retrieval_decision = result.get("retrieval_decision")
-        grounded = retrieval_decision == "grounded"
+        retrieval_status = result.get("retrieval_status")
+        retrieved_docs = result.get("retrieved_docs", []) or []
+        retrieval_scores = result.get("retrieval_scores", []) or []
+        top_score = result.get("top_score")
+        route = result.get("route")
 
         retrieved_sources = []
-        if grounded:
-            retrieved_sources = [
-                doc.get("metadata", {}).get("source")
-                for doc in result.get("retrieved_docs", [])
-                if doc.get("metadata", {}).get("source")
-            ]
+        for doc in retrieved_docs:
+            source = (doc.get("metadata", {}) or {}).get("source")
+            if source and source not in retrieved_sources:
+                retrieved_sources.append(source)
+
+        save_message(request.session_id, "user", request.query)
 
         save_message(
             request.session_id,
             "assistant",
-            result.get("answer", ""),
-            grounding="grounded" if grounded else "ungrounded",
+            answer,
+            grounding="grounded" if retrieval_decision == "grounded" else "ungrounded",
             sources=retrieved_sources,
             retrieval_decision=retrieval_decision,
-            top_score=result.get("top_score"),
+            top_score=top_score,
         )
-
-        active_source = retrieved_sources[0] if retrieved_sources else session_context.get("active_source")
 
         update_session_context(
             session_id=request.session_id,
-            active_filters=result.get("filters", {}),
-            active_source=active_source,
-            last_route=result.get("route"),
-            last_retrieval_query=(
-                result.get("rewritten_query")
-                or result.get("retrieval_query")
-                or request.query
-            ),
+            active_filters=applied_filters,
+            active_source=retrieved_sources[0] if retrieved_sources else None,
+            last_route=route,
+            last_retrieval_query=rewritten_query or retrieval_query or request.query,
         )
 
         updated_context = get_session_context(request.session_id)
 
         logger.info(
-            f"[request_id={request_id}] Completed | route={result.get('route')} | "
-            f"retrieval_decision={retrieval_decision} | "
-            f"top_score={result.get('top_score')} | retrieved_sources={retrieved_sources}"
+            f"[request_id={request_id}] Completed | route={route} | action={action} | "
+            f"retrieval_decision={retrieval_decision} | retrieval_status={retrieval_status} | "
+            f"retrieved_sources={retrieved_sources} | top_score={top_score}"
         )
 
         return {
             "request_id": request_id,
-            "route": result.get("route"),
-            "action": result.get("action"),
-            "target_sources": result.get("target_sources", []),
-            "retrieval_query": result.get("retrieval_query"),
-            "rewritten_query": result.get("rewritten_query"),
-            "applied_filters": result.get("filters", {}),
-            "response": result.get("answer"),
+            "route": route,
+            "action": action,
+            "target_sources": target_sources,
+            "retrieval_query": retrieval_query,
+            "rewritten_query": rewritten_query,
+            "applied_filters": applied_filters,
+            "response": answer,
             "context_preview": (
                 result.get("context", "")[:200] if result.get("context") else ""
             ),
             "session_id": request.session_id,
             "history_length": len(get_chat_history(request.session_id)),
             "retrieval_decision": retrieval_decision,
+            "retrieval_status": retrieval_status,
             "retrieved_sources": retrieved_sources,
-            "retrieval_scores": result.get("retrieval_scores", []),
-            "top_score": result.get("top_score"),
+            "retrieval_scores": retrieval_scores,
+            "top_score": top_score,
             "session_context": updated_context,
         }
 
     except Exception as exc:
-        logger.exception(f"[request_id={request_id}] Unhandled error during chat: {exc}")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "message": "Internal error while processing the request.",
-                "request_id": request_id,
-            },
-        ) from exc
+        logger.exception(f"[request_id={request_id}] Chat request failed: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/sessions/{session_id}")
-def delete_session_api(session_id: str):
+def remove_session(session_id: str):
     try:
-        delete_session(session_id)
+        deleted = delete_session(session_id)
 
-        logger.info(f"[sessions] Deleted session_id={session_id}")
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Session not found")
 
         return {
-            "message": "Session deleted successfully",
+            "status": "deleted",
             "session_id": session_id,
         }
-
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.exception(f"[sessions] Failed to delete session: {exc}")
-        raise HTTPException(
-            status_code=500,
-            detail={"message": "Failed to delete session"},
-        ) from exc
+        logger.exception(f"Failed to delete session_id={session_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to delete session")

@@ -7,7 +7,6 @@ from app.services.logging_utils import get_logger
 
 logger = get_logger("app.db")
 
-# DB_PATH = "chat_memory.db"
 DB_PATH = os.getenv("DB_PATH", "chat_memory.db")
 
 
@@ -23,6 +22,7 @@ def init_db():
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             session_id TEXT PRIMARY KEY,
+            title TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -33,6 +33,10 @@ def init_db():
             session_id TEXT,
             role TEXT,
             content TEXT,
+            grounding TEXT,
+            sources TEXT,
+            retrieval_decision TEXT,
+            top_score REAL,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -49,8 +53,7 @@ def init_db():
         """)
 
         conn.commit()
-        ensure_session_title_column()
-        ensure_message_metadata_columns()
+        _ensure_schema_updates(cursor, conn)
         logger.info("Database initialized")
     except Exception:
         conn.rollback()
@@ -59,15 +62,38 @@ def init_db():
         conn.close()
 
 
-def create_session(session_id: str):
+def _ensure_schema_updates(cursor, conn):
+    cursor.execute("PRAGMA table_info(sessions)")
+    session_columns = [row[1] for row in cursor.fetchall()]
+    if "title" not in session_columns:
+        cursor.execute("ALTER TABLE sessions ADD COLUMN title TEXT")
+
+    cursor.execute("PRAGMA table_info(messages)")
+    message_columns = [row[1] for row in cursor.fetchall()]
+
+    required_message_columns = {
+        "grounding": "TEXT",
+        "sources": "TEXT",
+        "retrieval_decision": "TEXT",
+        "top_score": "REAL",
+    }
+
+    for column_name, column_type in required_message_columns.items():
+        if column_name not in message_columns:
+            cursor.execute(f"ALTER TABLE messages ADD COLUMN {column_name} {column_type}")
+
+    conn.commit()
+
+
+def create_session(session_id: str, title: Optional[str] = None):
     conn = get_connection()
     try:
         cursor = conn.cursor()
 
         cursor.execute("""
-        INSERT OR IGNORE INTO sessions (session_id)
-        VALUES (?)
-        """, (session_id,))
+        INSERT OR IGNORE INTO sessions (session_id, title)
+        VALUES (?, ?)
+        """, (session_id, title))
 
         cursor.execute("""
         INSERT OR IGNORE INTO session_context (
@@ -120,126 +146,6 @@ def save_message(
         conn.close()
 
 
-def ensure_session_title_column():
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-
-        cursor.execute("PRAGMA table_info(sessions)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        if "title" not in columns:
-            cursor.execute("ALTER TABLE sessions ADD COLUMN title TEXT")
-            conn.commit()
-
-    finally:
-        conn.close()
-
-
-def ensure_message_metadata_columns():
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-
-        cursor.execute("PRAGMA table_info(messages)")
-        columns = [row[1] for row in cursor.fetchall()]
-
-        required_columns = {
-            "grounding": "TEXT",
-            "sources": "TEXT",
-            "retrieval_decision": "TEXT",
-            "top_score": "REAL",
-        }
-
-        for column_name, column_type in required_columns.items():
-            if column_name not in columns:
-                cursor.execute(
-                    f"ALTER TABLE messages ADD COLUMN {column_name} {column_type}"
-                )
-
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def update_session_title(session_id: str, title: str):
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE sessions
-            SET title = ?
-            WHERE session_id = ?
-        """, (title, session_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_session_title(session_id: str) -> Optional[str]:
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT title
-            FROM sessions
-            WHERE session_id = ?
-        """, (session_id,))
-        row = cursor.fetchone()
-        return row[0] if row else None
-    finally:
-        conn.close()
-
-
-def get_all_sessions() -> List[Dict[str, Any]]:
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-
-        cursor.execute("""
-        SELECT
-            s.session_id,
-            s.title,
-            s.created_at,
-            sc.updated_at
-        FROM sessions s
-        LEFT JOIN session_context sc
-            ON s.session_id = sc.session_id
-        ORDER BY
-            COALESCE(sc.updated_at, s.created_at) DESC
-        """)
-
-        rows = cursor.fetchall()
-
-        sessions = []
-        for row in rows:
-            sessions.append({
-                "session_id": row[0],
-                "title": row[1],
-                "created_at": row[2],
-                "updated_at": row[3],
-            })
-
-        return sessions
-
-    finally:
-        conn.close()
-
-
-def delete_session(session_id: str):
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-
-        cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-        cursor.execute("DELETE FROM session_context WHERE session_id = ?", (session_id,))
-        cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
-
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def get_chat_history(session_id: str) -> List[Dict[str, Any]]:
     conn = get_connection()
     try:
@@ -287,7 +193,6 @@ def get_session_context(session_id: str) -> Dict[str, Any]:
         """, (session_id,))
 
         row = cursor.fetchone()
-
         if not row:
             return {
                 "active_filters": {},
@@ -362,6 +267,94 @@ def update_session_context(
         ))
 
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_session_title(session_id: str, title: str):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+        UPDATE sessions
+        SET title = ?
+        WHERE session_id = ?
+        """, (title, session_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_session_title(session_id: str) -> Optional[str]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+        SELECT title
+        FROM sessions
+        WHERE session_id = ?
+        """, (session_id,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def get_all_sessions() -> List[Dict[str, Any]]:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT
+            s.session_id,
+            COALESCE(NULLIF(s.title, ''), 'New Chat') AS title,
+            s.created_at,
+            sc.updated_at
+        FROM sessions s
+        LEFT JOIN session_context sc
+            ON s.session_id = sc.session_id
+        ORDER BY COALESCE(sc.updated_at, s.created_at) DESC
+        """)
+
+        rows = cursor.fetchall()
+
+        return [
+            {
+                "session_id": row[0],
+                "title": row[1],
+                "created_at": row[2],
+                "updated_at": row[3],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def delete_session(session_id: str) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT 1 FROM sessions WHERE session_id = ? LIMIT 1",
+            (session_id,),
+        )
+        exists = cursor.fetchone() is not None
+
+        if not exists:
+            return False
+
+        cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        cursor.execute("DELETE FROM session_context WHERE session_id = ?", (session_id,))
+        cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+
+        conn.commit()
+        return True
     except Exception:
         conn.rollback()
         raise

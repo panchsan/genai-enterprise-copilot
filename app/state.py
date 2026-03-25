@@ -21,6 +21,7 @@ class AgentState(TypedDict, total=False):
 
     retrieved_docs: List[Dict[str, Any]]
     retrieval_decision: str
+    retrieval_status: str
 
     active_source: Optional[str]
     last_route: Optional[str]

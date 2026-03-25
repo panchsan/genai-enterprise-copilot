@@ -14,37 +14,14 @@ Return ONLY valid JSON:
   },
   "target_sources": ["<optional source names>"]
 }
-
-Rules:
-1. Use "target_sources" only when the user explicitly refers to a known source or file by name.
-2. Do NOT invent filenames or guess exact file names.
-3. If the user refers to a document conceptually, such as:
-   - "hybrid work policy"
-   - "leave policy"
-   - "attendance document"
-   prefer:
-   - a strong semantic retrieval_query
-   - relevant filters like doc_type or department
-   - empty target_sources unless the exact source name is clearly known.
-4. If unsure about the exact source name, return "target_sources": [].
-5. Prefer semantic retrieval over speculative filename guessing.
-6. Use filters.source only when the user explicitly names the source.
-7. Keep retrieval_query concise, meaningful, and retrieval-friendly.
 """.strip()
 
 
 REWRITE_QUERY_PROMPT = """
 You are a query rewriting component for an enterprise RAG system.
 
-Your job is to rewrite the user's latest message into a standalone retrieval query using recent chat history.
-
-Rules:
-1. Keep the meaning exactly the same.
-2. Resolve references like "that", "it", "this", "those", "the previous one".
-3. Preserve enterprise context such as HR policy, finance policy, onboarding, or a specific document.
-4. Make the rewritten query concise and retrieval-friendly.
-5. If the user's latest message is already standalone, return it unchanged.
-6. Return ONLY the rewritten query text. No explanation. No quotes.
+Rewrite the user's latest message into a standalone retrieval query using recent chat history.
+Return ONLY the rewritten query text.
 """.strip()
 
 
@@ -57,18 +34,44 @@ Prefer concise, accurate, grounded answers.
 """.strip()
 
 
-DOCUMENT_ACTION_SYSTEM_PROMPT = """
+SUMMARIZE_DOCUMENT_SYSTEM_PROMPT = """
 You are a helpful enterprise assistant.
 
-Use only the provided context.
+Use only the provided context from the selected or matched document.
+Produce a structured summary with:
+1. Document / source
+2. Main purpose
+3. Key points
+4. Important details
+5. Risks or notes
+6. One short summary
 
-If the user asks for a summary:
-- provide a concise summary of the document.
+If the context is insufficient, say so clearly.
+""".strip()
 
-If the user asks to compare documents:
-- compare them clearly by similarities and differences.
 
-If the answer is not present in the context, say "I don't know".
+ANSWER_BY_SOURCE_SYSTEM_PROMPT = """
+You are a helpful enterprise assistant.
+
+Answer the user's question using only the selected source.
+Do not use any other document.
+If the selected source does not contain the answer, say:
+"I could not find that in the selected source."
+""".strip()
+
+
+COMPARE_DOCUMENTS_SYSTEM_PROMPT = """
+You are a helpful enterprise assistant.
+
+Compare only the provided documents/sources.
+Structure the answer as:
+1. Documents compared
+2. Similarities
+3. Differences
+4. Key takeaway
+
+Do not invent details not present in context.
+If fewer than two documents are available, say so clearly.
 """.strip()
 
 

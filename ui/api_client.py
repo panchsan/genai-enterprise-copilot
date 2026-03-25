@@ -11,11 +11,13 @@ class RAGApiClient:
         query: str,
         session_id: str,
         filters: Optional[Dict[str, Any]] = None,
+        action: Optional[str] = None,
     ) -> Dict[str, Any]:
         payload = {
             "query": query,
             "session_id": session_id,
             "filters": filters or {},
+            "action": action,
         }
 
         response = requests.post(
@@ -41,8 +43,8 @@ class RAGApiClient:
         )
         response.raise_for_status()
         return response.json()
-    
-    def delete_session(self, session_id: str):
+
+    def delete_session(self, session_id: str) -> Dict[str, Any]:
         response = requests.delete(
             f"{self.base_url}/sessions/{session_id}",
             timeout=30,

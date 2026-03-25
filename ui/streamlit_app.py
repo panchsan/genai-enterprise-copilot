@@ -14,8 +14,9 @@ st.set_page_config(
     layout="wide",
 )
 
+
+#DEFAULT_API_URL = os.getenv("API_BASE_URL", "http://backend:8000")
 DEFAULT_API_URL = "http://127.0.0.1:8000"
-# DEFAULT_API_URL = os.getenv("API_BASE_URL", "http://backend:8000")
 APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
 SHOW_DEBUG_DEFAULT = os.getenv("SHOW_DEBUG", "true").strip().lower() in {
     "1", "true", "yes", "y", "on"
@@ -62,6 +63,18 @@ def init_state():
 
     if "chat_search" not in st.session_state:
         st.session_state.chat_search = ""
+
+    if "sessions_loaded_once" not in st.session_state:
+        st.session_state.sessions_loaded_once = False
+
+
+def reset_controls():
+    st.session_state.selected_action_label = "Auto"
+    st.session_state.filters = {
+        "doc_type": "",
+        "department": "",
+        "source": "",
+    }
 
 
 def build_grounding_from_history(item: dict) -> dict | None:
@@ -152,6 +165,7 @@ def refresh_sessions(client: RAGApiClient):
 def start_new_chat():
     st.session_state.current_session_id = new_session_id()
     st.session_state.messages = []
+    reset_controls()
 
 
 def clear_ui_only():
@@ -214,11 +228,11 @@ def build_filters() -> dict:
     if st.session_state.filters["source"].strip():
         filters["source"] = st.session_state.filters["source"].strip()
 
-    selected_action_value = ACTION_OPTIONS[st.session_state.selected_action_label]
-    if selected_action_value:
-        filters["action"] = selected_action_value
-
     return filters
+
+
+def get_selected_action() -> str | None:
+    return ACTION_OPTIONS[st.session_state.selected_action_label]
 
 
 def render_sidebar_sessions(client: RAGApiClient):
@@ -229,13 +243,6 @@ def render_sidebar_sessions(client: RAGApiClient):
         value=st.session_state.chat_search,
         placeholder="Search by title...",
     )
-
-    if not st.session_state.sessions:
-        try:
-            refresh_sessions(client)
-        except Exception:
-            st.caption("Unable to load chats.")
-            return
 
     sessions_to_show = filter_sessions(
         st.session_state.sessions,
@@ -265,6 +272,7 @@ def render_sidebar_sessions(client: RAGApiClient):
                 ):
                     try:
                         load_session_history(client, session_id)
+                        st.rerun()
                     except Exception as exc:
                         st.error(f"Failed to load chat: {exc}")
 
@@ -314,7 +322,7 @@ def build_retrieval_summary(result: dict) -> str:
     if unique_sources and top_score is not None:
         return (
             f"Based on {chunk_count} retrieved chunks from "
-            f"{len(unique_sources)} source(s). Best score: {top_score:.3f}"
+            f"{len(unique_sources)} source(s). Best score: {float(top_score):.3f}"
         )
 
     if unique_sources:
@@ -370,7 +378,7 @@ def render_sources_block(source_cards: list[dict]):
 
     for source, score in best_scores.items():
         if score is not None:
-            st.markdown(f"- 📄 `{source}` · best score `{score:.3f}`")
+            st.markdown(f"- 📄 `{source}` · best score `{float(score):.3f}`")
         else:
             st.markdown(f"- 📄 `{source}`")
 
@@ -437,6 +445,13 @@ st.markdown(
 
 client = RAGApiClient(st.session_state.api_url)
 
+if not st.session_state.sessions_loaded_once:
+    try:
+        refresh_sessions(client)
+    except Exception:
+        pass
+    st.session_state.sessions_loaded_once = True
+
 with st.sidebar:
     st.markdown('<div class="app-shell-title">Enterprise Copilot</div>', unsafe_allow_html=True)
     st.markdown(
@@ -448,6 +463,9 @@ with st.sidebar:
         "FastAPI Base URL",
         key="api_url",
     )
+
+    # rebuild client after potential api_url edit in the widget above
+    client = RAGApiClient(st.session_state.api_url)
 
     col1, col2 = st.columns(2)
 
@@ -461,6 +479,7 @@ with st.sidebar:
             try:
                 refresh_sessions(client)
                 st.success("Chat list refreshed")
+                st.rerun()
             except Exception as exc:
                 st.error(f"Refresh failed: {exc}")
 
@@ -550,6 +569,12 @@ for message in st.session_state.messages:
 user_prompt = st.chat_input("Ask a question about your documents...")
 
 if user_prompt:
+    selected_action = get_selected_action()
+
+    if selected_action == "answer_by_source" and not filters.get("source"):
+        st.warning("Please select or type a source for 'Answer by Source'.")
+        st.stop()
+
     st.session_state.messages.append({
         "role": "user",
         "content": user_prompt,
@@ -565,6 +590,7 @@ if user_prompt:
                     query=user_prompt,
                     session_id=st.session_state.current_session_id,
                     filters=filters,
+                    action=selected_action,
                 )
 
                 answer = result.get("response", "No response returned.")
@@ -577,6 +603,7 @@ if user_prompt:
                     "rewritten_query": result.get("rewritten_query"),
                     "applied_filters": result.get("applied_filters"),
                     "retrieval_decision": result.get("retrieval_decision"),
+                    "retrieval_status": result.get("retrieval_status"),
                     "retrieved_sources": result.get("retrieved_sources"),
                     "retrieval_scores": result.get("retrieval_scores"),
                     "top_score": result.get("top_score"),
