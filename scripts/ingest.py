@@ -1,6 +1,5 @@
 import argparse
 import os
-import re
 import uuid
 from pathlib import Path
 
@@ -9,33 +8,11 @@ from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoa
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import settings
-from app.services.metadata_utils import build_source_aliases, normalize_text
 from app.services.llm import get_embeddings
+from app.services.logging_utils import get_logger
+from app.services.metadata_utils import build_source_aliases, normalize_text
 
-
-def normalize_text(value: str) -> str:
-    if not value:
-        return ""
-
-    value = value.strip().lower()
-    value = re.sub(r"\.[a-z0-9]+$", "", value)  # remove extension
-    value = re.sub(r"[^a-z0-9]+", "_", value)
-    value = re.sub(r"_+", "_", value).strip("_")
-    return value
-
-
-def build_source_aliases(source: str, title: str | None = None) -> list[str]:
-    aliases = set()
-
-    if source:
-        aliases.add(source.strip())
-        aliases.add(normalize_text(source))
-
-    if title:
-        aliases.add(title.strip())
-        aliases.add(normalize_text(title))
-
-    return sorted(a for a in aliases if a)
+logger = get_logger("scripts.ingest")
 
 
 def build_document_title(filename: str) -> str:
@@ -101,12 +78,15 @@ def build_clean_metadata(filename: str, original_metadata: dict) -> dict:
 
 
 def get_loader(filepath: str):
-    if filepath.endswith(".txt"):
+    lower = filepath.lower()
+
+    if lower.endswith(".txt"):
         return TextLoader(filepath, encoding="utf-8")
-    if filepath.endswith(".pdf"):
+    if lower.endswith(".pdf"):
         return PyPDFLoader(filepath)
-    if filepath.endswith(".csv"):
-        return CSVLoader(filepath)
+    if lower.endswith(".csv"):
+        return CSVLoader(filepath, encoding="utf-8")
+
     raise ValueError(f"Unsupported file type: {filepath}")
 
 
@@ -116,21 +96,23 @@ def load_single_document(filepath: str):
     docs = loader.load()
 
     for doc in docs:
-        doc.metadata = build_clean_metadata(filename, doc.metadata)
+        doc.metadata = build_clean_metadata(filename, doc.metadata or {})
 
-    print(f"✅ Loaded {filename} ({len(docs)} raw docs)")
+    logger.info(f"Loaded file={filename} | raw_docs={len(docs)}")
     return docs
 
 
 def load_all_documents():
-    print("\n📄 Loading documents from data/ folder...")
+    logger.info(f"Loading documents from dir={settings.INGEST_DATA_DIR}")
     documents = []
 
-    if not os.path.exists(settings.DATA_DIR):
-        raise FileNotFoundError(f"Data directory not found: {settings.DATA_DIR}")
+    if not os.path.exists(settings.INGEST_DATA_DIR):
+        raise FileNotFoundError(
+            f"Data directory not found: {settings.INGEST_DATA_DIR}"
+        )
 
-    for filename in os.listdir(settings.DATA_DIR):
-        filepath = os.path.join(settings.DATA_DIR, filename)
+    for filename in sorted(os.listdir(settings.INGEST_DATA_DIR)):
+        filepath = os.path.join(settings.INGEST_DATA_DIR, filename)
 
         if not os.path.isfile(filepath):
             continue
@@ -139,14 +121,17 @@ def load_all_documents():
             docs = load_single_document(filepath)
             documents.extend(docs)
         except ValueError as exc:
-            print(f"⚠️ Skipping file: {exc}")
+            logger.warning(f"Skipping file={filename} | reason={exc}")
 
-    print(f"\n📊 Total raw documents loaded: {len(documents)}")
+    logger.info(f"Total raw documents loaded={len(documents)}")
     return documents
 
 
 def split_documents(documents):
-    print("\n✂️ Splitting documents into chunks...")
+    logger.info(
+        f"Splitting documents | chunk_size={settings.CHUNK_SIZE} | "
+        f"chunk_overlap={settings.CHUNK_OVERLAP}"
+    )
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=settings.CHUNK_SIZE,
@@ -160,19 +145,19 @@ def split_documents(documents):
         chunk.metadata["chunk_id"] = str(uuid.uuid4())
         chunk.metadata["chunk_doc_ref"] = document_id
 
-    print(f"✅ Created {len(chunks)} chunks")
+    logger.info(f"Created chunks={len(chunks)}")
     return chunks
 
 
 def get_vectorstore():
     return Chroma(
-        persist_directory=settings.PERSIST_DIR,
+        persist_directory=settings.CHROMA_PERSIST_DIR,
         embedding_function=get_embeddings(),
     )
 
 
 def full_reindex():
-    print("\n🚀 Running FULL reindex...")
+    logger.info("Running FULL reindex")
 
     documents = load_all_documents()
     chunks = split_documents(documents)
@@ -181,30 +166,30 @@ def full_reindex():
 
     existing = vectordb.get()
     existing_ids = existing.get("ids", [])
+
     if existing_ids:
         vectordb.delete(ids=existing_ids)
-        print(f"🗑️ Deleted {len(existing_ids)} existing vectors")
+        logger.info(f"Deleted existing vectors={len(existing_ids)}")
 
     ids = [str(uuid.uuid4()) for _ in chunks]
     vectordb.add_documents(documents=chunks, ids=ids)
 
-    print(f"✅ Full reindex complete. Indexed {len(chunks)} chunks")
+    logger.info(f"Full reindex complete | indexed_chunks={len(chunks)}")
 
 
 def delete_document(document_name: str):
-    print(f"\n🗑️ Deleting document from vector DB: {document_name}")
+    logger.info(f"Deleting document from vector DB | document={document_name}")
 
     vectordb = get_vectorstore()
-
     existing = vectordb.get(where={"document_id": document_name})
     ids = existing.get("ids", [])
 
     if not ids:
-        print("ℹ️ No indexed chunks found for this document")
+        logger.info("No indexed chunks found for this document")
         return
 
     vectordb.delete(ids=ids)
-    print(f"✅ Deleted {len(ids)} chunks for document: {document_name}")
+    logger.info(f"Deleted chunks={len(ids)} | document={document_name}")
 
 
 def upsert_document(filepath: str):
@@ -212,8 +197,7 @@ def upsert_document(filepath: str):
         raise FileNotFoundError(f"File not found: {filepath}")
 
     filename = os.path.basename(filepath)
-
-    print(f"\n♻️ Upserting document: {filename}")
+    logger.info(f"Upserting document | file={filename}")
 
     vectordb = get_vectorstore()
 
@@ -222,7 +206,7 @@ def upsert_document(filepath: str):
 
     if existing_ids:
         vectordb.delete(ids=existing_ids)
-        print(f"🗑️ Deleted {len(existing_ids)} old chunks for document: {filename}")
+        logger.info(f"Deleted old chunks={len(existing_ids)} | document={filename}")
 
     documents = load_single_document(filepath)
     chunks = split_documents(documents)
@@ -230,7 +214,7 @@ def upsert_document(filepath: str):
     ids = [str(uuid.uuid4()) for _ in chunks]
     vectordb.add_documents(documents=chunks, ids=ids)
 
-    print(f"✅ Upsert complete. Indexed {len(chunks)} chunks for document: {filename}")
+    logger.info(f"Upsert complete | indexed_chunks={len(chunks)} | document={filename}")
 
 
 def parse_args():
@@ -267,8 +251,11 @@ def main():
 
     if args.mode == "upsert":
         upsert_document(str(file_path))
-    elif args.mode == "delete":
+        return
+
+    if args.mode == "delete":
         delete_document(filename)
+        return
 
 
 if __name__ == "__main__":

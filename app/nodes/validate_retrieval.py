@@ -50,6 +50,37 @@ def validate_retrieval(state: AgentState):
             "retrieved_sources": [],
         }
 
+    # Summarize-document is source-driven.
+    # If chunks were found, allow generation without requiring QA-style grounding threshold.
+    if action == "summarize_document":
+        logger.info(
+            f"[request_id={request_id}] summarize_document retrieved content -> grounded"
+        )
+        return {
+            "retrieval_decision": "grounded",
+        }
+
+    # Compare-documents is coverage-driven.
+    # If at least two sources are present, allow generation even if QA-style score threshold is not met.
+    if action == "compare_documents":
+        if len(sources) >= 2:
+            logger.info(
+                f"[request_id={request_id}] compare_documents has multi-source coverage -> grounded"
+            )
+            return {
+                "retrieval_decision": "grounded",
+            }
+
+        logger.info(
+            f"[request_id={request_id}] compare_documents requires at least 2 sources -> no_docs"
+        )
+        return {
+            "retrieval_decision": "no_docs",
+            "retrieved_sources": [],
+            "retrieval_status": "insufficient_sources",
+        }
+
+    # Answer-by-source remains strict.
     if action == "answer_by_source":
         requested_source = filters.get("source")
         if requested_source and len(sources) > 1:
@@ -61,16 +92,23 @@ def validate_retrieval(state: AgentState):
                 "retrieved_sources": [],
             }
 
-    if action == "compare_documents" and len(sources) < 2:
+        if len(sources) == 1:
+            logger.info(
+                f"[request_id={request_id}] answer_by_source retrieved selected source -> grounded"
+            )
+            return {
+                "retrieval_decision": "grounded",
+            }
+
         logger.info(
-            f"[request_id={request_id}] compare_documents requires at least 2 sources -> no_docs"
+            f"[request_id={request_id}] answer_by_source could not validate selected source -> no_docs"
         )
         return {
             "retrieval_decision": "no_docs",
             "retrieved_sources": [],
-            "retrieval_status": "insufficient_sources",
         }
 
+    # Default QA behavior remains score-based.
     if top_score is not None and float(top_score) <= settings.GROUNDED_SCORE_THRESHOLD:
         logger.info(f"[request_id={request_id}] Retrieval decision=grounded")
         return {

@@ -1,47 +1,64 @@
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def _get_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
+    # General
+    APP_ENV: str = "dev"
+    LOG_LEVEL: str = "INFO"
+    SHOW_DEBUG: bool = True
 
-class Settings:
-    AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-    AZURE_OPENAI_CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
-    AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
-    AZURE_CHAT_API_VERSION = os.getenv("AZURE_CHAT_API_VERSION")
-    AZURE_EMBEDDING_API_VERSION = os.getenv("AZURE_EMBEDDING_API_VERSION")
+    # Azure OpenAI
+    AZURE_OPENAI_ENDPOINT: str
+    AZURE_OPENAI_CHAT_DEPLOYMENT: str
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str
+    AZURE_CHAT_API_VERSION: str = "2024-02-01"
+    AZURE_EMBEDDING_API_VERSION: str = "2024-02-01"
 
-    AZURE_TENANT_ID = os.getenv("AZURE_TENANT_ID")
-    AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
-    AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
+    # Azure identity
+    AZURE_TENANT_ID: str | None = None
+    AZURE_CLIENT_ID: str | None = None
+    AZURE_CLIENT_SECRET: str | None = None
 
-    PERSIST_DIR = os.getenv("PERSIST_DIR", "./chroma_db")
-    DATA_DIR = os.getenv("DATA_DIR", "data")
-    DB_PATH = os.getenv("DB_PATH", "chat_memory.db")
+    # Storage / paths
+    DB_PATH: str = "chat_memory.db"
+    CHROMA_PERSIST_DIR: str = "./chroma_db"
+    INGEST_DATA_DIR: str = "./data"
 
-    APP_ENV = os.getenv("APP_ENV", "dev")
-    SHOW_DEBUG = _get_bool("SHOW_DEBUG", True)
+    # Retrieval
+    RETRIEVAL_TOP_K: int = 4
+    RETRIEVAL_SCORE_THRESHOLD: float = 1.10
+    GROUNDED_SCORE_THRESHOLD: float = 1.0
+    RETRIEVAL_HARD_FILTER_ENABLED: bool = True
 
-    RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "4"))
-    RETRIEVAL_SCORE_THRESHOLD = float(os.getenv("RETRIEVAL_SCORE_THRESHOLD", "1.10"))
-    GROUNDED_SCORE_THRESHOLD = float(os.getenv("GROUNDED_SCORE_THRESHOLD", "1.0"))
-    RETRIEVAL_OVERLAP_THRESHOLD = float(os.getenv("RETRIEVAL_OVERLAP_THRESHOLD", "0.10"))
-    RETRIEVAL_HARD_FILTER_ENABLED = _get_bool("RETRIEVAL_HARD_FILTER_ENABLED", True)
-    ALLOW_DIRECT_LLM_FALLBACK = _get_bool("ALLOW_DIRECT_LLM_FALLBACK", False)
+    # Ingestion
+    CHUNK_SIZE: int = 300
+    CHUNK_OVERLAP: int = 50
 
-    CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "300"))
-    CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
+    # LLM behavior
+    MAX_CHAT_HISTORY_MESSAGES: int = 6
+    LLM_TEMPERATURE_DETERMINISTIC: float = 0.0
+    LLM_TEMPERATURE_DEFAULT: float = 0.0
 
-    MAX_CHAT_HISTORY_MESSAGES = int(os.getenv("MAX_CHAT_HISTORY_MESSAGES", "6"))
-    LLM_TEMPERATURE_DETERMINISTIC = float(os.getenv("LLM_TEMPERATURE_DETERMINISTIC", "0"))
-    LLM_TEMPERATURE_DEFAULT = float(os.getenv("LLM_TEMPERATURE_DEFAULT", "0"))
+    # UI
+    API_BASE_URL: str = "http://backend:8000"
+
+    @property
+    def is_dev(self) -> bool:
+        return self.APP_ENV.strip().lower() == "dev"
+
+    @property
+    def is_prod(self) -> bool:
+        return self.APP_ENV.strip().lower() == "prod"
+
+    @property
+    def show_debug_ui(self) -> bool:
+        return self.is_dev and self.SHOW_DEBUG
 
 
 settings = Settings()

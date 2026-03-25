@@ -14,13 +14,12 @@ st.set_page_config(
     layout="wide",
 )
 
-
-#DEFAULT_API_URL = os.getenv("API_BASE_URL", "http://backend:8000")
-DEFAULT_API_URL = "http://127.0.0.1:8000"
+DEFAULT_API_URL = os.getenv("API_BASE_URL", "http://backend:8000")
 APP_ENV = os.getenv("APP_ENV", "dev").strip().lower()
 SHOW_DEBUG_DEFAULT = os.getenv("SHOW_DEBUG", "true").strip().lower() in {
     "1", "true", "yes", "y", "on"
 }
+IS_DEV = APP_ENV == "dev"
 
 ACTION_OPTIONS = {
     "Auto": None,
@@ -59,7 +58,7 @@ def init_state():
         }
 
     if "show_debug" not in st.session_state:
-        st.session_state.show_debug = SHOW_DEBUG_DEFAULT
+        st.session_state.show_debug = SHOW_DEBUG_DEFAULT and IS_DEV
 
     if "chat_search" not in st.session_state:
         st.session_state.chat_search = ""
@@ -78,8 +77,7 @@ def reset_controls():
 
 
 def build_grounding_from_history(item: dict) -> dict | None:
-    role = item.get("role")
-    if role != "assistant":
+    if item.get("role") != "assistant":
         return None
 
     retrieval_decision = item.get("retrieval_decision")
@@ -107,8 +105,7 @@ def build_grounding_from_history(item: dict) -> dict | None:
 
 
 def build_retrieval_summary_from_history(item: dict) -> str | None:
-    role = item.get("role")
-    if role != "assistant":
+    if item.get("role") != "assistant":
         return None
 
     sources = item.get("sources", []) or []
@@ -132,9 +129,6 @@ def build_retrieval_summary_from_history(item: dict) -> str | None:
 
 def build_source_cards_from_history(item: dict) -> list[dict]:
     sources = item.get("sources", []) or []
-    if not sources:
-        return []
-
     return [{"source": s, "score": None} for s in sources if s]
 
 
@@ -259,8 +253,7 @@ def render_sidebar_sessions(client: RAGApiClient):
         subtitle = format_session_subtitle(session)
         is_active = session_id == st.session_state.current_session_id
 
-        container = st.container()
-        with container:
+        with st.container():
             col1, col2 = st.columns([6, 1])
 
             with col1:
@@ -326,10 +319,7 @@ def build_retrieval_summary(result: dict) -> str:
         )
 
     if unique_sources:
-        return (
-            f"Based on {chunk_count} retrieved chunks from "
-            f"{len(unique_sources)} source(s)."
-        )
+        return f"Based on {chunk_count} retrieved chunks from {len(unique_sources)} source(s)."
 
     return "No retrieved source evidence was attached to this answer."
 
@@ -393,39 +383,32 @@ st.markdown(
         padding-bottom: 1rem;
         max-width: 1250px;
     }
-
     div[data-testid="stSidebar"] {
         border-right: 1px solid #e5e7eb;
     }
-
     div[data-testid="stSidebar"] .block-container {
         padding-top: 1rem;
     }
-
     .app-shell-title {
         font-size: 1.15rem;
         font-weight: 700;
         margin-bottom: 0.2rem;
     }
-
     .app-shell-subtitle {
         color: #6b7280;
         font-size: 0.9rem;
         margin-bottom: 0.8rem;
     }
-
     .main-title {
         font-size: 2rem;
         font-weight: 700;
         margin-top: 0.2rem;
         margin-bottom: 0.25rem;
     }
-
     .main-subtitle {
         color: #6b7280;
         margin-bottom: 1rem;
     }
-
     .empty-state {
         border: 1px dashed #d1d5db;
         border-radius: 12px;
@@ -433,7 +416,6 @@ st.markdown(
         background: #fafafa;
         margin-top: 1rem;
     }
-
     .small-note {
         color: #6b7280;
         font-size: 0.9rem;
@@ -459,12 +441,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    st.text_input(
-        "FastAPI Base URL",
-        key="api_url",
-    )
-
-    # rebuild client after potential api_url edit in the widget above
+    st.text_input("FastAPI Base URL", key="api_url")
     client = RAGApiClient(st.session_state.api_url)
 
     col1, col2 = st.columns(2)
@@ -484,9 +461,7 @@ with st.sidebar:
                 st.error(f"Refresh failed: {exc}")
 
     st.divider()
-
     render_sidebar_sessions(client)
-
     st.divider()
 
     with st.expander("⚙️ Advanced Settings", expanded=False):
@@ -515,7 +490,7 @@ with st.sidebar:
             placeholder="e.g. hr_policy.txt",
         )
 
-        if APP_ENV != "prod":
+        if IS_DEV:
             st.session_state.show_debug = st.toggle(
                 "Show debug details",
                 value=st.session_state.show_debug,
@@ -562,7 +537,7 @@ for message in st.session_state.messages:
             )
             render_sources_block(message.get("sources", []))
 
-            if message.get("debug") and st.session_state.show_debug and APP_ENV != "prod":
+            if IS_DEV and st.session_state.show_debug and message.get("debug"):
                 with st.expander("Debug details"):
                     st.json(message["debug"])
 
@@ -619,14 +594,14 @@ if user_prompt:
                 render_grounding_block(grounding_payload, retrieval_summary)
                 render_sources_block(source_cards)
 
-                if st.session_state.show_debug and APP_ENV != "prod":
+                if IS_DEV and st.session_state.show_debug:
                     with st.expander("Debug details"):
                         st.json(debug_payload)
 
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer,
-                    "debug": debug_payload,
+                    "debug": debug_payload if IS_DEV else None,
                     "sources": source_cards,
                     "grounding": grounding_payload,
                     "retrieval_summary": retrieval_summary,

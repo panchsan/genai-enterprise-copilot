@@ -13,15 +13,15 @@ logger = get_logger("app.llm")
 def _log_auth_env():
     logger.info(
         "Auth env check | "
-        f"AZURE_CLIENT_ID={'set' if os.getenv('AZURE_CLIENT_ID') else 'missing'} | "
-        f"AZURE_TENANT_ID={'set' if os.getenv('AZURE_TENANT_ID') else 'missing'} | "
-        f"AZURE_CLIENT_SECRET={'set' if os.getenv('AZURE_CLIENT_SECRET') else 'missing'} | "
-        f"AZURE_OPENAI_ENDPOINT={'set' if os.getenv('AZURE_OPENAI_ENDPOINT') else 'missing'}"
+        f"AZURE_CLIENT_ID={'set' if settings.AZURE_CLIENT_ID else 'missing'} | "
+        f"AZURE_TENANT_ID={'set' if settings.AZURE_TENANT_ID else 'missing'} | "
+        f"AZURE_CLIENT_SECRET={'set' if settings.AZURE_CLIENT_SECRET else 'missing'} | "
+        f"AZURE_OPENAI_ENDPOINT={'set' if settings.AZURE_OPENAI_ENDPOINT else 'missing'}"
     )
 
 
 def get_token_provider():
-    # _log_auth_env()
+    _log_auth_env()
 
     credential = DefaultAzureCredential(
         exclude_interactive_browser_credential=True,

@@ -69,9 +69,8 @@ def _format_results(results, retrieval_status: str = "found"):
         metadata = getattr(doc, "metadata", {}) or {}
         source = metadata.get("source")
 
-        context_parts.append(
-            f"[SOURCE: {source or 'unknown'}]\n{doc.page_content}"
-        )
+        context_parts.append(f"[SOURCE: {source or 'unknown'}]\n{doc.page_content}")
+
         retrieved_docs.append({
             "page_content": doc.page_content,
             "metadata": metadata,
@@ -127,6 +126,34 @@ def _search(vectordb, query: str, k: int, filters: dict | None, request_id: str,
     return results
 
 
+def _search_no_threshold(
+    vectordb,
+    query: str,
+    k: int,
+    filters: dict | None,
+    request_id: str,
+    timer_name: str,
+):
+    chroma_filter = build_chroma_filter(filters)
+    logger.info(
+        f"[request_id={request_id}] Search(no-threshold) | query='{query}' | k={k} | "
+        f"filters={filters or {}} | chroma_filter={chroma_filter}"
+    )
+
+    with log_timing(logger, timer_name, request_id):
+        raw_results = _run_search(
+            vectordb=vectordb,
+            query=query,
+            k=k,
+            chroma_filter=chroma_filter,
+        )
+
+    logger.info(
+        f"[request_id={request_id}] Search(no-threshold) result | raw_count={len(raw_results)}"
+    )
+    return raw_results
+
+
 def _resolve_effective_sources(state: AgentState, vectordb, filters: dict) -> list[str]:
     explicit_source = filters.get("source")
     target_sources = state.get("target_sources", []) or []
@@ -139,7 +166,6 @@ def _resolve_effective_sources(state: AgentState, vectordb, filters: dict) -> li
         if matched:
             resolved.append(matched)
         else:
-            # keep original value so the caller can decide how to fail
             resolved.append(explicit_source)
 
     for src in target_sources:
@@ -205,14 +231,28 @@ def _retrieve_for_summary(
         strict_filters["source"] = effective_sources[0]
 
     try:
-        results = _search(
-            vectordb=vectordb,
-            query=query,
-            k=config["top_k"],
-            filters=strict_filters,
-            request_id=request_id,
-            timer_name="vector_retrieval_summary",
-        )
+        # IMPORTANT:
+        # For summary, when a source is selected/resolved, do not hard-filter by semantic score.
+        # Generic prompts like "summarize this document" often have weak semantic similarity even
+        # though the chosen source exists and should be summarized.
+        if strict_filters.get("source"):
+            results = _search_no_threshold(
+                vectordb=vectordb,
+                query=query,
+                k=config["top_k"],
+                filters=strict_filters,
+                request_id=request_id,
+                timer_name="vector_retrieval_summary",
+            )
+        else:
+            results = _search(
+                vectordb=vectordb,
+                query=query,
+                k=config["top_k"],
+                filters=strict_filters,
+                request_id=request_id,
+                timer_name="vector_retrieval_summary",
+            )
     except Exception as exc:
         logger.exception(f"[request_id={request_id}] Summary retrieval failed: {exc}")
         return _format_results([], retrieval_status="no_docs")
@@ -290,7 +330,10 @@ def _retrieve_for_compare(
             strict_filters["source"] = source
 
             try:
-                source_results = _search(
+                # IMPORTANT:
+                # Compare should prioritize coverage across sources.
+                # Do not hard-filter by QA-style score threshold when sources are explicit.
+                source_results = _search_no_threshold(
                     vectordb=vectordb,
                     query=query,
                     k=per_source_k,

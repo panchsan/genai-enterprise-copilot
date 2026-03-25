@@ -14,7 +14,7 @@ def get_vectorstore() -> Chroma:
     if _vectorstore is None:
         print("📦 Loading vector store from disk...")
         _vectorstore = Chroma(
-            persist_directory=settings.PERSIST_DIR,
+            persist_directory=settings.CHROMA_PERSIST_DIR,
             embedding_function=get_embeddings(),
         )
 
