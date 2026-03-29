@@ -29,8 +29,25 @@ def build_chroma_filter(filters: dict | None):
     return {"$and": [{k: v} for k, v in cleaned_filters.items()]}
 
 
-def _apply_score_threshold(results):
+def _is_azure_search_backend() -> bool:
+    return getattr(settings, "VECTOR_BACKEND", "chroma").strip().lower() == "azure_search"
+
+
+def _should_apply_score_threshold(action: str, filters: dict | None = None) -> bool:
     if not getattr(settings, "RETRIEVAL_HARD_FILTER_ENABLED", True):
+        return False
+
+    if _is_azure_search_backend():
+        return False
+
+    if action in {"summarize_document", "compare_documents", "answer_by_source"}:
+        return False
+
+    return True
+
+
+def _apply_score_threshold(results, action: str, filters: dict | None = None):
+    if not _should_apply_score_threshold(action=action, filters=filters):
         return results
 
     threshold = getattr(settings, "RETRIEVAL_SCORE_THRESHOLD", None)
@@ -49,7 +66,18 @@ def _apply_score_threshold(results):
     return filtered
 
 
-def _format_results(results, retrieval_status: str = "found"):
+def _format_results(
+    results,
+    retrieval_status: str = "found",
+    *,
+    raw_count: int | None = None,
+    filtered_count: int | None = None,
+    raw_scores: list[float] | None = None,
+    threshold_applied: bool | None = None,
+    filters: dict | None = None,
+    action: str | None = None,
+    effective_sources: list[str] | None = None,
+):
     if not results:
         return {
             "context": "",
@@ -58,6 +86,19 @@ def _format_results(results, retrieval_status: str = "found"):
             "retrieval_scores": [],
             "top_score": None,
             "retrieval_status": retrieval_status,
+            "retrieval_debug": {
+                "backend": getattr(settings, "VECTOR_BACKEND", "chroma"),
+                "action": action,
+                "raw_count": raw_count or 0,
+                "filtered_count": filtered_count or 0,
+                "raw_scores": raw_scores or [],
+                "filtered_scores": [],
+                "threshold": getattr(settings, "RETRIEVAL_SCORE_THRESHOLD", None),
+                "threshold_applied": threshold_applied,
+                "filters": filters or {},
+                "effective_sources": effective_sources or [],
+                "retrieved_sources": [],
+            },
         }
 
     context_parts = []
@@ -90,6 +131,19 @@ def _format_results(results, retrieval_status: str = "found"):
         "retrieval_scores": numeric_scores,
         "top_score": min(numeric_scores) if numeric_scores else None,
         "retrieval_status": retrieval_status,
+        "retrieval_debug": {
+            "backend": getattr(settings, "VECTOR_BACKEND", "chroma"),
+            "action": action,
+            "raw_count": raw_count if raw_count is not None else len(results),
+            "filtered_count": filtered_count if filtered_count is not None else len(results),
+            "raw_scores": raw_scores or [],
+            "filtered_scores": numeric_scores,
+            "threshold": getattr(settings, "RETRIEVAL_SCORE_THRESHOLD", None),
+            "threshold_applied": threshold_applied,
+            "filters": filters or {},
+            "effective_sources": effective_sources or [],
+            "retrieved_sources": dedupe_keep_order(sources),
+        },
     }
 
 
@@ -101,11 +155,20 @@ def _run_search(vectordb, query: str, k: int, chroma_filter):
     )
 
 
-def _search(vectordb, query: str, k: int, filters: dict | None, request_id: str, timer_name: str):
+def _search(
+    vectordb,
+    query: str,
+    k: int,
+    filters: dict | None,
+    request_id: str,
+    timer_name: str,
+    action: str,
+):
     chroma_filter = build_chroma_filter(filters)
     logger.info(
         f"[request_id={request_id}] Search | query='{query}' | k={k} | "
-        f"filters={filters or {}} | chroma_filter={chroma_filter}"
+        f"filters={filters or {}} | chroma_filter={chroma_filter} | "
+        f"backend={getattr(settings, 'VECTOR_BACKEND', 'chroma')} | action={action}"
     )
 
     with log_timing(logger, timer_name, request_id):
@@ -116,14 +179,24 @@ def _search(vectordb, query: str, k: int, filters: dict | None, request_id: str,
             chroma_filter=chroma_filter,
         )
 
-    results = _apply_score_threshold(raw_results)
+    raw_scores = [float(score) for _, score in raw_results if score is not None]
+    results = _apply_score_threshold(raw_results, action=action, filters=filters)
+    filtered_scores = [float(score) for _, score in results if score is not None]
 
     logger.info(
         f"[request_id={request_id}] Search result | raw_count={len(raw_results)} | "
         f"filtered_count={len(results)} | "
-        f"threshold={getattr(settings, 'RETRIEVAL_SCORE_THRESHOLD', None)}"
+        f"threshold={getattr(settings, 'RETRIEVAL_SCORE_THRESHOLD', None)} | "
+        f"threshold_applied={_should_apply_score_threshold(action=action, filters=filters)} | "
+        f"backend={getattr(settings, 'VECTOR_BACKEND', 'chroma')}"
     )
-    return results
+
+    logger.info(
+        f"[request_id={request_id}] Search scores | raw_scores={raw_scores[:10]} | "
+        f"filtered_scores={filtered_scores[:10]}"
+    )
+
+    return raw_results, results
 
 
 def _search_no_threshold(
@@ -133,11 +206,13 @@ def _search_no_threshold(
     filters: dict | None,
     request_id: str,
     timer_name: str,
+    action: str,
 ):
     chroma_filter = build_chroma_filter(filters)
     logger.info(
         f"[request_id={request_id}] Search(no-threshold) | query='{query}' | k={k} | "
-        f"filters={filters or {}} | chroma_filter={chroma_filter}"
+        f"filters={filters or {}} | chroma_filter={chroma_filter} | "
+        f"backend={getattr(settings, 'VECTOR_BACKEND', 'chroma')} | action={action}"
     )
 
     with log_timing(logger, timer_name, request_id):
@@ -148,8 +223,11 @@ def _search_no_threshold(
             chroma_filter=chroma_filter,
         )
 
+    raw_scores = [float(score) for _, score in raw_results if score is not None]
+
     logger.info(
-        f"[request_id={request_id}] Search(no-threshold) result | raw_count={len(raw_results)}"
+        f"[request_id={request_id}] Search(no-threshold) result | raw_count={len(raw_results)} | "
+        f"raw_scores={raw_scores[:10]}"
     )
     return raw_results
 
@@ -176,22 +254,43 @@ def _resolve_effective_sources(state: AgentState, vectordb, filters: dict) -> li
     return dedupe_keep_order(resolved)
 
 
-def _retrieve_for_qa(query: str, filters: dict, vectordb, request_id: str, config: dict):
+def _retrieve_for_qa(query: str, filters: dict, vectordb, request_id: str, config: dict, effective_sources: list[str]):
     try:
-        results = _search(
+        raw_results, results = _search(
             vectordb=vectordb,
             query=query,
             k=config["top_k"],
             filters=filters,
             request_id=request_id,
             timer_name="vector_retrieval_qa",
+            action="qa",
         )
     except Exception as exc:
         logger.exception(f"[request_id={request_id}] QA retrieval failed: {exc}")
-        return _format_results([], retrieval_status="no_docs")
+        return _format_results(
+            [],
+            retrieval_status="no_docs",
+            raw_count=0,
+            filtered_count=0,
+            raw_scores=[],
+            threshold_applied=_should_apply_score_threshold("qa", filters),
+            filters=filters,
+            action="qa",
+            effective_sources=effective_sources,
+        )
 
     if results:
-        return _format_results(results, retrieval_status="found")
+        return _format_results(
+            results,
+            retrieval_status="found",
+            raw_count=len(raw_results),
+            filtered_count=len(results),
+            raw_scores=[float(score) for _, score in raw_results if score is not None],
+            threshold_applied=_should_apply_score_threshold("qa", filters),
+            filters=filters,
+            action="qa",
+            effective_sources=effective_sources,
+        )
 
     if filters and config["allow_filter_relaxation"]:
         logger.warning(
@@ -199,22 +298,53 @@ def _retrieve_for_qa(query: str, filters: dict, vectordb, request_id: str, confi
             f"Retrying without filters."
         )
         try:
-            results = _search(
+            raw_results, results = _search(
                 vectordb=vectordb,
                 query=query,
                 k=config["top_k"],
                 filters=None,
                 request_id=request_id,
                 timer_name="vector_retrieval_qa_no_filters",
+                action="qa",
             )
         except Exception as exc:
             logger.exception(f"[request_id={request_id}] QA retry without filters failed: {exc}")
-            return _format_results([], retrieval_status="no_docs")
+            return _format_results(
+                [],
+                retrieval_status="no_docs",
+                raw_count=0,
+                filtered_count=0,
+                raw_scores=[],
+                threshold_applied=_should_apply_score_threshold("qa", None),
+                filters=None,
+                action="qa",
+                effective_sources=effective_sources,
+            )
 
         if results:
-            return _format_results(results, retrieval_status="found")
+            return _format_results(
+                results,
+                retrieval_status="found",
+                raw_count=len(raw_results),
+                filtered_count=len(results),
+                raw_scores=[float(score) for _, score in raw_results if score is not None],
+                threshold_applied=_should_apply_score_threshold("qa", None),
+                filters=None,
+                action="qa",
+                effective_sources=effective_sources,
+            )
 
-    return _format_results([], retrieval_status="no_docs")
+    return _format_results(
+        [],
+        retrieval_status="no_docs",
+        raw_count=len(raw_results),
+        filtered_count=len(results),
+        raw_scores=[float(score) for _, score in raw_results if score is not None],
+        threshold_applied=_should_apply_score_threshold("qa", filters),
+        filters=filters,
+        action="qa",
+        effective_sources=effective_sources,
+    )
 
 
 def _retrieve_for_summary(
@@ -231,10 +361,6 @@ def _retrieve_for_summary(
         strict_filters["source"] = effective_sources[0]
 
     try:
-        # IMPORTANT:
-        # For summary, when a source is selected/resolved, do not hard-filter by semantic score.
-        # Generic prompts like "summarize this document" often have weak semantic similarity even
-        # though the chosen source exists and should be summarized.
         if strict_filters.get("source"):
             results = _search_no_threshold(
                 vectordb=vectordb,
@@ -243,24 +369,57 @@ def _retrieve_for_summary(
                 filters=strict_filters,
                 request_id=request_id,
                 timer_name="vector_retrieval_summary",
+                action="summarize_document",
             )
+            raw_results = results
         else:
-            results = _search(
+            raw_results, results = _search(
                 vectordb=vectordb,
                 query=query,
                 k=config["top_k"],
                 filters=strict_filters,
                 request_id=request_id,
                 timer_name="vector_retrieval_summary",
+                action="summarize_document",
             )
     except Exception as exc:
         logger.exception(f"[request_id={request_id}] Summary retrieval failed: {exc}")
-        return _format_results([], retrieval_status="no_docs")
+        return _format_results(
+            [],
+            retrieval_status="no_docs",
+            raw_count=0,
+            filtered_count=0,
+            raw_scores=[],
+            threshold_applied=False,
+            filters=strict_filters,
+            action="summarize_document",
+            effective_sources=effective_sources,
+        )
 
     if not results:
-        return _format_results([], retrieval_status="no_docs")
+        return _format_results(
+            [],
+            retrieval_status="no_docs",
+            raw_count=len(raw_results),
+            filtered_count=0,
+            raw_scores=[float(score) for _, score in raw_results if score is not None],
+            threshold_applied=False,
+            filters=strict_filters,
+            action="summarize_document",
+            effective_sources=effective_sources,
+        )
 
-    return _format_results(results, retrieval_status="found")
+    return _format_results(
+        results,
+        retrieval_status="found",
+        raw_count=len(raw_results),
+        filtered_count=len(results),
+        raw_scores=[float(score) for _, score in raw_results if score is not None],
+        threshold_applied=False,
+        filters=strict_filters,
+        action="summarize_document",
+        effective_sources=effective_sources,
+    )
 
 
 def _retrieve_for_answer_by_source(
@@ -281,35 +440,87 @@ def _retrieve_for_answer_by_source(
 
     if not source:
         logger.warning(f"[request_id={request_id}] answer_by_source missing source")
-        return _format_results([], retrieval_status="missing_required_source")
+        return _format_results(
+            [],
+            retrieval_status="missing_required_source",
+            raw_count=0,
+            filtered_count=0,
+            raw_scores=[],
+            threshold_applied=False,
+            filters=filters,
+            action="answer_by_source",
+            effective_sources=effective_sources,
+        )
 
     resolved_source = resolve_target_source(source, known_sources)
     if not resolved_source:
         logger.warning(
             f"[request_id={request_id}] answer_by_source source not found | source={source}"
         )
-        return _format_results([], retrieval_status="source_not_found")
+        return _format_results(
+            [],
+            retrieval_status="source_not_found",
+            raw_count=0,
+            filtered_count=0,
+            raw_scores=[],
+            threshold_applied=False,
+            filters=filters,
+            action="answer_by_source",
+            effective_sources=effective_sources,
+        )
 
     strict_filters = deepcopy(filters)
     strict_filters["source"] = resolved_source
 
     try:
-        results = _search(
+        raw_results = _search_no_threshold(
             vectordb=vectordb,
             query=query,
             k=config["top_k"],
             filters=strict_filters,
             request_id=request_id,
             timer_name="vector_retrieval_answer_by_source",
+            action="answer_by_source",
         )
+        results = raw_results
     except Exception as exc:
         logger.exception(f"[request_id={request_id}] answer_by_source retrieval failed: {exc}")
-        return _format_results([], retrieval_status="source_not_found")
+        return _format_results(
+            [],
+            retrieval_status="source_not_found",
+            raw_count=0,
+            filtered_count=0,
+            raw_scores=[],
+            threshold_applied=False,
+            filters=strict_filters,
+            action="answer_by_source",
+            effective_sources=effective_sources,
+        )
 
     if not results:
-        return _format_results([], retrieval_status="source_not_found")
+        return _format_results(
+            [],
+            retrieval_status="source_not_found",
+            raw_count=len(raw_results),
+            filtered_count=0,
+            raw_scores=[float(score) for _, score in raw_results if score is not None],
+            threshold_applied=False,
+            filters=strict_filters,
+            action="answer_by_source",
+            effective_sources=effective_sources,
+        )
 
-    return _format_results(results, retrieval_status="found")
+    return _format_results(
+        results,
+        retrieval_status="found",
+        raw_count=len(raw_results),
+        filtered_count=len(results),
+        raw_scores=[float(score) for _, score in raw_results if score is not None],
+        threshold_applied=False,
+        filters=strict_filters,
+        action="answer_by_source",
+        effective_sources=effective_sources,
+    )
 
 
 def _retrieve_for_compare(
@@ -330,9 +541,6 @@ def _retrieve_for_compare(
             strict_filters["source"] = source
 
             try:
-                # IMPORTANT:
-                # Compare should prioritize coverage across sources.
-                # Do not hard-filter by QA-style score threshold when sources are explicit.
                 source_results = _search_no_threshold(
                     vectordb=vectordb,
                     query=query,
@@ -340,6 +548,7 @@ def _retrieve_for_compare(
                     filters=strict_filters,
                     request_id=request_id,
                     timer_name=f"vector_retrieval_compare_{source}",
+                    action="compare_documents",
                 )
                 all_results.extend(source_results)
             except Exception as exc:
@@ -349,20 +558,41 @@ def _retrieve_for_compare(
 
     else:
         try:
-            all_results = _search(
+            raw_results, all_results = _search(
                 vectordb=vectordb,
                 query=query,
                 k=config["top_k"],
                 filters=filters,
                 request_id=request_id,
                 timer_name="vector_retrieval_compare",
+                action="compare_documents",
             )
         except Exception as exc:
             logger.exception(f"[request_id={request_id}] compare retrieval failed: {exc}")
-            return _format_results([], retrieval_status="no_docs")
+            return _format_results(
+                [],
+                retrieval_status="no_docs",
+                raw_count=0,
+                filtered_count=0,
+                raw_scores=[],
+                threshold_applied=False,
+                filters=filters,
+                action="compare_documents",
+                effective_sources=effective_sources,
+            )
 
     if not all_results:
-        return _format_results([], retrieval_status="no_docs")
+        return _format_results(
+            [],
+            retrieval_status="no_docs",
+            raw_count=0,
+            filtered_count=0,
+            raw_scores=[],
+            threshold_applied=False,
+            filters=filters,
+            action="compare_documents",
+            effective_sources=effective_sources,
+        )
 
     distinct_sources = dedupe_keep_order([
         (doc.metadata or {}).get("source")
@@ -371,9 +601,29 @@ def _retrieve_for_compare(
     ])
 
     if len(distinct_sources) < 2:
-        return _format_results(all_results, retrieval_status="insufficient_sources")
+        return _format_results(
+            all_results,
+            retrieval_status="insufficient_sources",
+            raw_count=len(all_results),
+            filtered_count=len(all_results),
+            raw_scores=[float(score) for _, score in all_results if score is not None],
+            threshold_applied=False,
+            filters=filters,
+            action="compare_documents",
+            effective_sources=effective_sources,
+        )
 
-    return _format_results(all_results, retrieval_status="found")
+    return _format_results(
+        all_results,
+        retrieval_status="found",
+        raw_count=len(all_results),
+        filtered_count=len(all_results),
+        raw_scores=[float(score) for _, score in all_results if score is not None],
+        threshold_applied=False,
+        filters=filters,
+        action="compare_documents",
+        effective_sources=effective_sources,
+    )
 
 
 def retrieve(state: AgentState, vectordb):
@@ -387,7 +637,8 @@ def retrieve(state: AgentState, vectordb):
 
     logger.info(
         f"[request_id={request_id}] Retrieve start | action={action} | "
-        f"query='{query}' | filters={filters} | effective_sources={effective_sources}"
+        f"query='{query}' | filters={filters} | effective_sources={effective_sources} | "
+        f"backend={getattr(settings, 'VECTOR_BACKEND', 'chroma')}"
     )
 
     if action == "answer_by_source":
@@ -426,4 +677,5 @@ def retrieve(state: AgentState, vectordb):
         vectordb=vectordb,
         request_id=request_id,
         config=config,
+        effective_sources=effective_sources,
     )

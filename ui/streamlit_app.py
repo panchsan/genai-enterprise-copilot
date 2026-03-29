@@ -582,6 +582,7 @@ if user_prompt:
                     "retrieved_sources": result.get("retrieved_sources"),
                     "retrieval_scores": result.get("retrieval_scores"),
                     "top_score": result.get("top_score"),
+                    "retrieval_debug": result.get("retrieval_debug"),
                     "history_length": result.get("history_length"),
                     "session_context": result.get("session_context"),
                 }

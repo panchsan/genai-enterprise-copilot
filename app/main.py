@@ -171,6 +171,7 @@ def chat(request: ChatRequest):
         retrieval_scores = result.get("retrieval_scores", []) or []
         top_score = result.get("top_score")
         route = result.get("route")
+        retrieval_debug = result.get("retrieval_debug", {}) or {}
 
         retrieved_sources = []
         for doc in retrieved_docs:
@@ -225,6 +226,7 @@ def chat(request: ChatRequest):
             "retrieved_sources": retrieved_sources,
             "retrieval_scores": retrieval_scores,
             "top_score": top_score,
+            "retrieval_debug": retrieval_debug,
             "session_context": updated_context,
         }
 

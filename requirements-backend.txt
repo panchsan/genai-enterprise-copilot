@@ -17,3 +17,6 @@ PyJWT
 cryptography
 httpx
 requests>=2.31.0
+azure-search-documents
+azure-storage-blob
+azure-core

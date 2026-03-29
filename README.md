@@ -57,3 +57,18 @@ ui/
 
 data/
   sample local documents
+
+```
+
+## Build and push your images to ACR
+
+```cmd
+az login
+az acr login --name acrcopilotdev
+
+docker build -f Dockerfile.backend -t acrcopilotdev.azurecr.io/copilot/backend:1 .
+docker push acrcopilotdev.azurecr.io/copilot/backend:1
+
+docker build -f Dockerfile.ui -t acrcopilotdev.azurecr.io/copilot/ui:1 .
+docker push acrcopilotdev.azurecr.io/copilot/ui:1
+```  

@@ -25,10 +25,25 @@ class Settings(BaseSettings):
     AZURE_CLIENT_ID: str | None = None
     AZURE_CLIENT_SECRET: str | None = None
 
-    # Storage / paths
+    # Current runtime/local fallback paths
     DB_PATH: str = "chat_memory.db"
     CHROMA_PERSIST_DIR: str = "./chroma_db"
     INGEST_DATA_DIR: str = "./data"
+
+    # Backend switches
+    VECTOR_BACKEND: str = "chroma"          # chroma | azure_search
+    DOCUMENT_SOURCE_BACKEND: str = "local"  # local | blob
+
+    # Azure AI Search
+    AZURE_SEARCH_ENDPOINT: str | None = None
+    AZURE_SEARCH_INDEX_NAME: str = "copilot-index"
+    AZURE_SEARCH_API_KEY: str | None = None
+    AZURE_SEARCH_VECTOR_DIMENSIONS: int = 1536
+
+    # Azure Blob Storage
+    AZURE_BLOB_ACCOUNT_URL: str | None = None
+    AZURE_BLOB_CONTAINER_NAME: str = "documents"
+    AZURE_STORAGE_CONNECTION_STRING: str | None = None
 
     # Retrieval
     RETRIEVAL_TOP_K: int = 4

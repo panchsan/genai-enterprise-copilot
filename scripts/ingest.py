@@ -3,14 +3,14 @@ import os
 import uuid
 from pathlib import Path
 
-from langchain_chroma import Chroma
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import settings
-from app.services.llm import get_embeddings
+from app.services.blob_loader import list_supported_blobs, load_blob_document
 from app.services.logging_utils import get_logger
 from app.services.metadata_utils import build_source_aliases, normalize_text
+from app.services.vectorstore import get_vectorstore
 
 logger = get_logger("scripts.ingest")
 
@@ -102,14 +102,38 @@ def load_single_document(filepath: str):
     return docs
 
 
+def load_single_blob(blob_name: str):
+    docs = load_blob_document(blob_name)
+    filename = os.path.basename(blob_name)
+
+    for doc in docs:
+        doc.metadata = build_clean_metadata(filename, doc.metadata or {})
+
+    logger.info(f"Loaded blob={blob_name} | raw_docs={len(docs)}")
+    return docs
+
+
 def load_all_documents():
-    logger.info(f"Loading documents from dir={settings.INGEST_DATA_DIR}")
+    backend = settings.DOCUMENT_SOURCE_BACKEND.strip().lower()
     documents = []
 
-    if not os.path.exists(settings.INGEST_DATA_DIR):
-        raise FileNotFoundError(
-            f"Data directory not found: {settings.INGEST_DATA_DIR}"
+    if backend == "blob":
+        logger.info(
+            f"Loading documents from blob container={settings.AZURE_BLOB_CONTAINER_NAME}"
         )
+        for blob_name in list_supported_blobs():
+            try:
+                documents.extend(load_single_blob(blob_name))
+            except ValueError as exc:
+                logger.warning(f"Skipping blob={blob_name} | reason={exc}")
+
+        logger.info(f"Total raw documents loaded from blob={len(documents)}")
+        return documents
+
+    logger.info(f"Loading documents from dir={settings.INGEST_DATA_DIR}")
+
+    if not os.path.exists(settings.INGEST_DATA_DIR):
+        raise FileNotFoundError(f"Data directory not found: {settings.INGEST_DATA_DIR}")
 
     for filename in sorted(os.listdir(settings.INGEST_DATA_DIR)):
         filepath = os.path.join(settings.INGEST_DATA_DIR, filename)
@@ -149,13 +173,6 @@ def split_documents(documents):
     return chunks
 
 
-def get_vectorstore():
-    return Chroma(
-        persist_directory=settings.CHROMA_PERSIST_DIR,
-        embedding_function=get_embeddings(),
-    )
-
-
 def full_reindex():
     logger.info("Running FULL reindex")
 
@@ -163,6 +180,9 @@ def full_reindex():
     chunks = split_documents(documents)
 
     vectordb = get_vectorstore()
+
+    if hasattr(vectordb, "ensure_index"):
+        vectordb.ensure_index()
 
     existing = vectordb.get()
     existing_ids = existing.get("ids", [])
@@ -192,14 +212,16 @@ def delete_document(document_name: str):
     logger.info(f"Deleted chunks={len(ids)} | document={document_name}")
 
 
-def upsert_document(filepath: str):
-    if not os.path.exists(filepath):
-        raise FileNotFoundError(f"File not found: {filepath}")
+def upsert_document(path_or_name: str):
+    backend = settings.DOCUMENT_SOURCE_BACKEND.strip().lower()
+    filename = os.path.basename(path_or_name)
 
-    filename = os.path.basename(filepath)
     logger.info(f"Upserting document | file={filename}")
 
     vectordb = get_vectorstore()
+
+    if hasattr(vectordb, "ensure_index"):
+        vectordb.ensure_index()
 
     existing = vectordb.get(where={"document_id": filename})
     existing_ids = existing.get("ids", [])
@@ -208,7 +230,13 @@ def upsert_document(filepath: str):
         vectordb.delete(ids=existing_ids)
         logger.info(f"Deleted old chunks={len(existing_ids)} | document={filename}")
 
-    documents = load_single_document(filepath)
+    if backend == "blob":
+        documents = load_single_blob(path_or_name)
+    else:
+        if not os.path.exists(path_or_name):
+            raise FileNotFoundError(f"File not found: {path_or_name}")
+        documents = load_single_document(path_or_name)
+
     chunks = split_documents(documents)
 
     ids = [str(uuid.uuid4()) for _ in chunks]
@@ -230,7 +258,7 @@ def parse_args():
     parser.add_argument(
         "--file",
         required=False,
-        help="Path to a specific file for upsert/delete modes",
+        help="Local file path or blob name for upsert/delete modes",
     )
 
     return parser.parse_args()
@@ -250,7 +278,7 @@ def main():
     filename = file_path.name
 
     if args.mode == "upsert":
-        upsert_document(str(file_path))
+        upsert_document(args.file)
         return
 
     if args.mode == "delete":
