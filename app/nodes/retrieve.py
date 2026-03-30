@@ -251,6 +251,9 @@ def _resolve_effective_sources(state: AgentState, vectordb, filters: dict) -> li
         if matched:
             resolved.append(matched)
 
+    if not resolved and filters.get("source") and filters.get("source") not in resolved:
+        resolved.append(filters.get("source"))
+
     return dedupe_keep_order(resolved)
 
 
@@ -532,6 +535,9 @@ def _retrieve_for_compare(
     config: dict,
 ):
     all_results = []
+
+    if len(effective_sources) == 1 and filters.get("source"):
+        effective_sources = dedupe_keep_order([filters["source"], *effective_sources])
 
     if len(effective_sources) >= 2:
         per_source_k = max(3, config["top_k"] // min(len(effective_sources), 4))

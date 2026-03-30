@@ -37,12 +37,13 @@ ACTION_RETRIEVAL_CONFIG: Dict[str, Dict] = {
 }
 
 
-VALID_RETRIEVAL_STATUS = {
+VALID_RETRIEVAL_STATUSES = {
     "found",
     "no_docs",
     "missing_required_source",
     "source_not_found",
     "insufficient_sources",
+    "weak_match",
 }
 
 

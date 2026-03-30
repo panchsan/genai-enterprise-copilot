@@ -14,6 +14,13 @@ from app.state import AgentState
 client = get_azure_openai_client()
 logger = get_logger("app.generate")
 
+UNKNOWN_ANSWER_MARKERS = {
+    "i don't know.",
+    "i don't know",
+    "not enough information",
+    "insufficient information",
+}
+
 
 def build_user_message(state: AgentState, context: str) -> str:
     action = normalize_action(state.get("action", "qa"))
@@ -77,7 +84,15 @@ def _build_action_failure_response(action: str, retrieval_status: str) -> str | 
     if action == "summarize_document" and retrieval_status == "no_docs":
         return "I could not find document content to summarize."
 
+    if action == "qa" and retrieval_status == "weak_match":
+        return "I couldn't find a grounded answer in the indexed documents for that question."
+
     return None
+
+
+def _is_unknown_like(answer: str) -> bool:
+    normalized = (answer or "").strip().lower()
+    return any(marker in normalized for marker in UNKNOWN_ANSWER_MARKERS)
 
 
 def generate(state: AgentState):
@@ -103,6 +118,7 @@ def generate(state: AgentState):
         return {
             "answer": action_failure,
             "retrieval_decision": "no_docs",
+            "retrieval_status": retrieval_status,
         }
 
     system_prompt = _choose_system_prompt(action)
@@ -144,9 +160,24 @@ def generate(state: AgentState):
         logger.error(f"[request_id={request_id}] Grounded generation failed: {exc}")
         answer = GROUNDING_FAILURE_RESPONSE
 
+    final_status = retrieval_status
+    final_decision = "grounded"
+
+    if action == "qa" and _is_unknown_like(answer):
+        logger.warning(
+            f"[request_id={request_id}] QA generation returned unknown-like answer after grounded retrieval; downgrading to weak_match"
+        )
+        final_status = "weak_match"
+        final_decision = "no_docs"
+        answer = "I couldn't find a grounded answer in the indexed documents for that question."
+
     logger.info(
         f"[request_id={request_id}] Grounded answer generated | "
-        f"action={action} | answer_preview={answer[:120]!r}"
+        f"action={action} | answer_preview={answer[:120]!r} | final_status={final_status}"
     )
 
-    return {"answer": answer, "retrieval_decision": "grounded"}
+    return {
+        "answer": answer,
+        "retrieval_decision": final_decision,
+        "retrieval_status": final_status,
+    }

@@ -20,6 +20,7 @@ class AgentState(TypedDict, total=False):
     target_sources: List[str]
 
     retrieved_docs: List[Dict[str, Any]]
+    retrieved_sources: List[str]
     retrieval_decision: str
     retrieval_status: str
 

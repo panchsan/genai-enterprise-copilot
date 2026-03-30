@@ -191,10 +191,16 @@ def chat(request: ChatRequest):
             top_score=top_score,
         )
 
+        should_persist_active_source = (
+            action in {"answer_by_source", "summarize_document"}
+            or bool(target_sources)
+            or bool((applied_filters or {}).get("source"))
+        )
+
         update_session_context(
             session_id=request.session_id,
             active_filters=applied_filters,
-            active_source=retrieved_sources[0] if retrieved_sources else None,
+            active_source=(retrieved_sources[0] if should_persist_active_source and retrieved_sources else ""),
             last_route=route,
             last_retrieval_query=rewritten_query or retrieval_query or request.query,
         )

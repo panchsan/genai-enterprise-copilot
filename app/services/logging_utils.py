@@ -9,6 +9,24 @@ from app.config import settings
 _CONFIGURED = False
 
 
+NOISY_LOGGERS = [
+    "azure",
+    "azure.core",
+    "azure.identity",
+    "azure.storage",
+    "azure.storage.blob",
+    "azure.search",
+    "azure.search.documents",
+    "httpx",
+    "urllib3",
+    "openai",
+]
+
+
+def _resolve_level(level_name: str, fallback: int = logging.INFO) -> int:
+    return getattr(logging, (level_name or "").upper(), fallback)
+
+
 def configure_logging() -> None:
     global _CONFIGURED
 
@@ -21,14 +39,12 @@ def configure_logging() -> None:
         for handler in list(root_logger.handlers):
             root_logger.removeHandler(handler)
 
-    level_name = settings.LOG_LEVEL.upper()
-    default_level = getattr(logging, level_name, logging.INFO)
+    app_level = _resolve_level(settings.LOG_LEVEL, logging.INFO)
 
     if settings.is_dev:
-        root_logger.setLevel(default_level)
+        root_logger.setLevel(app_level)
     else:
-        # Never show DEBUG logs outside dev
-        root_logger.setLevel(max(default_level, logging.INFO))
+        root_logger.setLevel(max(app_level, logging.INFO))
 
     handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter(
@@ -38,6 +54,13 @@ def configure_logging() -> None:
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
 
+    # Suppress noisy SDK/client logs
+    sdk_level = _resolve_level(settings.SDK_LOG_LEVEL, logging.WARNING)
+    for logger_name in NOISY_LOGGERS:
+        noisy_logger = logging.getLogger(logger_name)
+        noisy_logger.setLevel(sdk_level)
+        noisy_logger.propagate = True
+
     _CONFIGURED = True
 
 
@@ -45,10 +68,12 @@ def get_logger(name: str) -> logging.Logger:
     configure_logging()
     logger = logging.getLogger(name)
 
+    app_level = _resolve_level(settings.LOG_LEVEL, logging.INFO)
+
     if settings.is_dev:
-        logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+        logger.setLevel(app_level)
     else:
-        logger.setLevel(max(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO), logging.INFO))
+        logger.setLevel(max(app_level, logging.INFO))
 
     logger.propagate = True
     return logger

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "dev"
     LOG_LEVEL: str = "INFO"
     SHOW_DEBUG: bool = True
+    SDK_LOG_LEVEL: str = "WARNING"
 
     # Azure OpenAI
     AZURE_OPENAI_ENDPOINT: str
